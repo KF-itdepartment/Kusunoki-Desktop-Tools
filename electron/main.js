@@ -71,6 +71,7 @@ function createApplicationWindow() {
     minWidth: 960,
     minHeight: 640,
     title: 'Kusunoki Desktop Tools',
+    icon: path.join(RENDERER_DIRECTORY, 'app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
