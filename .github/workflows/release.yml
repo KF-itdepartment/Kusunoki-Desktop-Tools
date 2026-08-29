@@ -8,11 +8,14 @@ concurrency:
   group: release-main
   cancel-in-progress: false
 
+# The workflow creates tags only after the candidate has passed the complete
+# test/build gate. The marker on the version commit prevents that commit from
+# recursively starting another release.
 permissions:
   contents: write
 
 jobs:
-  version:
+  prepare:
     if: ${{ !contains(github.event.head_commit.message, '[release-version]') }}
     runs-on: ubuntu-latest
     outputs:
@@ -22,27 +25,54 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - id: version
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test and build the unchanged candidate
         run: |
           set -euo pipefail
-          npm version patch --no-git-tag-version
-          version="$(node -p "require('./package.json').version")"
-          tag="v${version}"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          npm test
+          npm run build
+      - name: Bump only an already-released version, then retest
+        id: version
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          candidate="$current"
+          if git rev-parse --verify --quiet "refs/tags/v${current}" >/dev/null; then
+            npm version patch --no-git-tag-version
+            candidate="$(node -p "require('./package.json').version")"
+            if git rev-parse --verify --quiet "refs/tags/v${candidate}" >/dev/null; then
+              echo "candidate tag v${candidate} already exists" >&2
+              exit 1
+            fi
+            # A version change is itself a candidate and must pass the same
+            # gate before either the commit or tag is made permanent.
+            npm test
+            npm run build
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add package.json package-lock.json
+            git commit -m "chore: release v${candidate} [release-version]"
+            git push origin HEAD:main
+          fi
+          tag="v${candidate}"
+          # The first main push retains package.json's 1.0.0 and creates v1.0.0
+          # only after the unchanged candidate passed above.
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add package.json package-lock.json
-          git commit -m "chore: release ${tag} [release-version]"
-          git tag "${tag}"
-          git push origin HEAD:main --follow-tags
+          git tag -a "$tag" -m "Kusunoki Desktop Tools $tag"
+          git push origin "$tag"
+          echo "version=${candidate}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: version
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -50,14 +80,14 @@ jobs:
           - os: windows-latest
             name: windows-x64
           - os: macos-latest
-            name: macos-universal
+            name: macos-x64-arm64
           - os: ubuntu-latest
             name: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.version.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.tag }}
           submodules: recursive
       - uses: actions/setup-node@v4
         with:
@@ -65,31 +95,39 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Package Windows x64
+      - name: Package Windows x64 NSIS
         if: matrix.name == 'windows-x64'
         run: npm run pack -- --publish never --win nsis --x64
-      - name: Package macOS x64 and arm64
-        if: matrix.name == 'macos-universal'
+      - name: Package macOS x64 and arm64 DMG
+        if: matrix.name == 'macos-x64-arm64'
         run: npm run pack -- --publish never --mac dmg
-      - name: Package Linux x64
+      - name: Package Linux x64 AppImage
         if: matrix.name == 'linux-x64'
         run: npm run pack -- --publish never --linux AppImage --x64
-      - uses: actions/upload-artifact@v4
+      - name: Upload installers and update metadata
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: dist/*
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.yml
+            dist/*.yaml
+            dist/*.blockmap
           if-no-files-found: error
 
   publish:
-    needs: [version, build]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
-      - uses: softprops/action-gh-release@v2
+      - name: Publish all OS installers and metadata
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.version.outputs.tag }}
-          name: Kusunoki Desktop Tools ${{ needs.version.outputs.version }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Kusunoki Desktop Tools ${{ needs.prepare.outputs.version }}
           generate_release_notes: true
           files: release-assets/**

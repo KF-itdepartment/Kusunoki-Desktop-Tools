@@ -17,9 +17,11 @@
     "build": "npm run prepare && electron-builder --dir",
     "pack": "npm run prepare && electron-builder",
     "pack:dry-run": "npm run prepare && electron-builder --dir --config.publish=never",
+    "verify:pack": "node scripts/verify-pack.js",
     "sync-upstreams": "node scripts/sync-upstreams.js"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "electron-updater": "^6.6.2",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
@@ -41,6 +43,7 @@
       "vendor/**/*",
       "package.json",
       "node_modules/electron-updater/**/*",
+      "node_modules/@pdf-lib/fontkit/**/*",
       "node_modules/jszip/**/*",
       "node_modules/pdf-lib/**/*",
       "node_modules/pdfjs-dist/**/*",
@@ -54,7 +57,8 @@
       "node_modules/bluebird/**/*",
       "node_modules/uuid/**/*",
       "node_modules/parse-color/**/*",
-      "node_modules/uri-js/**/*"
+      "node_modules/uri-js/**/*",
+      "node_modules/pako/**/*"
     ],
     "directories": {
       "output": "dist"
@@ -66,7 +70,14 @@
       "releaseType": "release"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -74,11 +85,26 @@
       "allowToChangeInstallationDirectory": true
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "identity": null
     },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "category": "Utility"
     }
   }

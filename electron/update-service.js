@@ -1,5 +1,13 @@
 const RELEASE_URL = 'https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases';
 
+function releaseTagUrl(version) {
+  const normalized = String(version || '').replace(/^v/iu, '').trim();
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(normalized)) {
+    throw new TypeError('更新バージョンが不正です。');
+  }
+  return `https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases/tag/v${normalized}`;
+}
+
 function formatVersion(info) {
   return String(info?.version || info?.releaseName || '').replace(/^v/iu, '') || '不明';
 }
@@ -46,9 +54,10 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
       return { status: 'refused', version };
     }
     if (processPlatform === 'darwin') {
-      await shell.openExternal(RELEASE_URL);
-      notify({ type: 'manual', version });
-      return { status: 'manual', version, url: RELEASE_URL };
+      const url = releaseTagUrl(version);
+      await shell.openExternal(url);
+      notify({ type: 'manual', version, url });
+      return { status: 'manual', version, url };
     }
     try {
       notify({ type: 'downloading', version });
@@ -98,4 +107,4 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
   };
 }
 
-module.exports = { RELEASE_URL, createUpdateService, formatVersion };
+module.exports = { RELEASE_URL, createUpdateService, formatVersion, releaseTagUrl };

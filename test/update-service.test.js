@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { createUpdateService } = require('../electron/update-service');
+const { createUpdateService, releaseTagUrl } = require('../electron/update-service');
 
 function setup({ packaged = false, platform = 'win32', response = null, answer = 1 } = {}) {
   const events = new EventEmitter(); const calls=[];
@@ -21,6 +21,11 @@ test('Windows update asks, downloads and installs; refusal is held', async () =>
   const refused=setup({packaged:true,response:{updateInfo:{version:'1.1.0'}},answer:1}); assert.equal((await refused.service.check()).status,'refused'); assert.deepEqual(await refused.service.check(),{status:'skipped',reason:'refused-this-launch'});
 });
 
-test('unsigned mac update opens the release page manually', async () => {
-  const { service, calls }=setup({packaged:true,platform:'darwin',response:{updateInfo:{version:'1.1.0'}},answer:0}); const result=await service.check(); assert.equal(result.status,'manual'); assert.match(calls[0],/^open:https:\/\/github.com\/KF-itdepartment\/Kusunoki-Desktop-Tools\/releases$/);
+test('unsigned mac update opens the versioned release page manually', async () => {
+  const { service, calls }=setup({packaged:true,platform:'darwin',response:{updateInfo:{version:'1.1.0'}},answer:0}); const result=await service.check(); assert.equal(result.status,'manual'); assert.equal(calls[0],'open:https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases/tag/v1.1.0'); assert.equal(result.url,'https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases/tag/v1.1.0');
+});
+
+test('release tag URL accepts semver and rejects URL injection', () => {
+  assert.equal(releaseTagUrl('v2.3.4'), 'https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases/tag/v2.3.4');
+  assert.throws(() => releaseTagUrl('2.3.4/../../evil'), /不正/);
 });

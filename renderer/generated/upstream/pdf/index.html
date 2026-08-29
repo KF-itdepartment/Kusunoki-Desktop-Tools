@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDFツール</title>
+    <style>
+        body {
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            background-color: #f4f7f9;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        @media (max-width: 800px) {
+            body {
+                flex-direction: column;
+                height: auto;
+                overflow: visible;
+            }
+
+            .preview-side {
+                width: 100% !important;
+                height: 500px;
+                border-left: none !important;
+                border-top: 2px solid #4a5568;
+            }
+
+            .main-content {
+                height: auto;
+                overflow: visible;
+            }
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .page-title {
+            margin: 0 0 10px;
+            color: #1a202c;
+        }
+
+        .page-copy {
+            margin: 0 0 20px;
+            color: #4a5568;
+            font-size: 0.95rem;
+        }
+
+        .mode-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .mode-card {
+            background: #f7fafc;
+            border: 1px solid #dbe7f3;
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .mode-card .option-group {
+            font-size: 1rem;
+        }
+
+        .mode-note {
+            margin: 8px 0 0 24px;
+            color: #718096;
+            font-size: 0.85rem;
+        }
+
+        .status-box {
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #edf2f7;
+            color: #2d3748;
+            font-size: 0.92rem;
+        }
+
+        .status-box.error {
+            background: #fff5f5;
+            color: #c53030;
+            border: 1px solid #feb2b2;
+        }
+
+        .feature-section {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 18px;
+            margin-top: 16px;
+            background: #fcfdff;
+        }
+
+        .feature-section.hidden {
+            display: none;
+        }
+
+        .feature-title {
+            margin: 0 0 6px;
+            font-size: 1.05rem;
+            color: #1a202c;
+        }
+
+        .feature-copy {
+            margin: 0 0 12px;
+            color: #718096;
+            font-size: 0.88rem;
+        }
+
+        #file-list {
+            margin: 15px 0;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        #page-number-panel {
+            display: none;
+            margin-top: 15px;
+            border-color: #90cdf4;
+            background: #ebf8ff;
+        }
+
+        #page-number-panel.visible {
+            display: block;
+        }
+
+        #page-size-panel {
+            display: none;
+            margin-top: 15px;
+            border-color: #9ae6b4;
+            background: #f0fff4;
+        }
+
+        #page-size-panel.visible {
+            display: block;
+        }
+
+        #spread-split-panel {
+            display: none;
+            margin-top: 15px;
+            border-color: #d6bcfa;
+            background: #faf5ff;
+        }
+
+        #spread-split-panel.visible {
+            display: block;
+        }
+
+        .size-target-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 8px;
+            width: 100%;
+        }
+
+        .size-target-option {
+            padding: 9px 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 7px;
+            background: white;
+        }
+
+        .setting-help {
+            width: 100%;
+            margin: 0;
+            color: #718096;
+            font-size: 0.8rem;
+        }
+
+        ol {
+            margin: 0;
+            padding: 0;
+            list-style-position: inside;
+        }
+
+        ol li {
+            padding: 12px;
+            border-bottom: 1px solid #edf2f7;
+            background: white;
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        ol li.selected {
+            background: #bee3f8;
+            border-left: 4px solid #4299e1;
+        }
+
+        .input-group {
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        input[type="file"],
+        input[type="range"],
+        select {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .option-container {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            margin-top: 5px;
+        }
+
+        .option-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #4a5568;
+            cursor: pointer;
+        }
+
+        .option-group input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            padding-left: 24px;
+            flex-wrap: wrap;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #4a5568;
+            flex-wrap: wrap;
+        }
+
+        .setting-item select {
+            padding: 6px 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            background: white;
+            width: auto;
+        }
+
+        .stacked-settings {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .output-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .output-quality {
+            margin-top: 12px;
+        }
+
+        .output-quality.hidden {
+            display: none;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            min-width: 100px;
+            font-size: 0.95rem;
+        }
+
+        button:disabled {
+            background-color: #cbd5e0 !important;
+            cursor: not-allowed;
+        }
+
+        .preview-side {
+            width: 45%;
+            background: #2d3748;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            border-left: 2px solid #4a5568;
+        }
+
+        .preview-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 1rem;
+            font-weight: bold;
+        }
+
+        .no-preview {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.75);
+            padding: 20px;
+            text-align: center;
+        }
+
+        #pdf-viewer {
+            flex: 1;
+            width: 100%;
+            border: none;
+            background: #1a202c;
+        }
+    </style>
+</head>
+<body>
+<div class="main-content">
+    <div class="container">
+        <h1 class="page-title">PDFツール</h1>
+        <p class="page-copy">PDFの結合、分割、ページ番号、ウォーターマーク追加をブラウザ内で行います。</p>
+
+        <section id="source-section" class="feature-section">
+            <h2 class="feature-title">PDFをアップロード</h2>
+            <p class="feature-copy">処理方法を選択する前にPDFを追加できます。複数追加すると自動的に結合が選択されます。</p>
+            <input type="file" id="pdf-inputs" accept="application/pdf" multiple>
+            <div id="file-list">
+                <b>追加したファイル一覧（クリックでプレビュー / ドラッグで並び替え）</b>
+                <ol id="list-items"></ol>
+            </div>
+            <div id="page-number-panel" class="option-container">
+                <label class="option-group">
+                    <input type="checkbox" id="page-number-check">
+                    ページ番号を追加する
+                </label>
+                <div id="page-number-settings" class="settings-row">
+                    <div class="setting-item">
+                        <label for="page-number-style">表示</label>
+                        <select id="page-number-style">
+                            <option value="dash">- 1 -</option>
+                            <option value="bracket">&lt; 1 &gt;</option>
+                            <option value="fraction">1 / 5</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="page-number-size">文字サイズ</label>
+                        <select id="page-number-size">
+                            <option value="8">8 pt</option>
+                            <option value="10" selected>10 pt</option>
+                            <option value="12">12 pt</option>
+                            <option value="14">14 pt</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="page-number-start-page">番号を付け始めるページ</label>
+                        <input type="number" id="page-number-start-page" min="1" step="1" value="1" style="width: 90px; padding: 6px;">
+                    </div>
+                    <p class="setting-help">表紙に番号を付けない場合は「2」を指定します。指定したページから番号「1」が始まります。</p>
+                </div>
+            </div>
+            <div id="page-size-panel" class="option-container">
+                <label class="option-group">
+                    <input type="checkbox" id="page-size-check">
+                    ページサイズを揃える
+                </label>
+                <div id="page-size-settings" class="stacked-settings" style="margin-top:12px;">
+                    <div class="settings-row" style="padding-left:0;">
+                        <div class="setting-item">
+                            <label for="page-size-dimension">揃える範囲</label>
+                            <select id="page-size-dimension">
+                                <option value="page" selected>幅と高さ</option>
+                                <option value="width">幅だけ</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-weight:bold; font-size:0.9rem; color:#4a5568; margin-bottom:8px;">基準サイズ（1つ選択）</div>
+                        <div id="page-size-targets" class="size-target-grid">
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="largest" checked>最大ページ</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="smallest">最小ページ</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="A4">A4</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="A5">A5</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="B4">B4</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="B5">B5</label>
+                            <label class="option-group size-target-option"><input type="checkbox" name="page-size-target" value="other">その他</label>
+                        </div>
+                    </div>
+                    <div id="page-size-orientation-wrap" class="settings-row" style="padding-left:0;">
+                        <div class="setting-item">
+                            <label for="page-size-orientation">用紙の向き</label>
+                            <select id="page-size-orientation">
+                                <option value="portrait" selected>縦</option>
+                                <option value="landscape">横</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="page-size-other-wrap" class="stacked-settings" style="display:none;">
+                        <div class="setting-item">
+                            <label for="page-size-other-preset">その他の用紙</label>
+                            <select id="page-size-other-preset">
+                                <option value="A0">A0</option><option value="A1">A1</option><option value="A2">A2</option><option value="A3" selected>A3</option><option value="A6">A6</option>
+                                <option value="B0">JIS B0</option><option value="B1">JIS B1</option><option value="B2">JIS B2</option><option value="B3">JIS B3</option><option value="B6">JIS B6</option>
+                                <option value="custom">任意サイズ</option>
+                            </select>
+                        </div>
+                        <div id="page-size-custom-wrap" class="settings-row" style="display:none; padding-left:0;">
+                            <div class="setting-item"><label for="page-size-custom-width">幅 (mm)</label><input type="number" id="page-size-custom-width" min="0.1" step="0.1" value="210" style="width:100px; padding:6px;"></div>
+                            <div class="setting-item"><label for="page-size-custom-height">高さ (mm)</label><input type="number" id="page-size-custom-height" min="0.1" step="0.1" value="297" style="width:100px; padding:6px;"></div>
+                        </div>
+                    </div>
+                    <p class="setting-help">内容の縦横比を保ちます。「幅と高さ」では見切れないよう中央へ配置し、余った部分を白い余白にします。</p>
+                </div>
+            </div>
+            <div id="spread-split-panel" class="option-container">
+                <label class="option-group">
+                    <input type="checkbox" id="spread-split-check">
+                    横長ページを中央で分割する
+                </label>
+                <div id="spread-split-settings" class="settings-row">
+                    <div class="setting-item">
+                        <label for="spread-split-order">分割後の順番</label>
+                        <select id="spread-split-order">
+                            <option value="right-first" selected>右 → 左</option>
+                            <option value="left-first">左 → 右</option>
+                        </select>
+                    </div>
+                    <p class="setting-help">表示上の横長ページだけを左右均等に分割します。縦長・正方形ページはそのまま残します。</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="mode-grid">
+            <div class="mode-card">
+                <label class="option-group">
+                    <input type="checkbox" id="mode-merge">
+                    結合
+                </label>
+                <p class="mode-note">複数のPDFを1つにまとめます。</p>
+            </div>
+            <div class="mode-card">
+                <label class="option-group">
+                    <input type="checkbox" id="mode-split">
+                    分割
+                </label>
+                <p class="mode-note">1つのPDFから必要なページだけを取り出します。</p>
+            </div>
+            <div class="mode-card">
+                <label class="option-group">
+                    <input type="checkbox" id="mode-watermark">
+                    ウォーターマーク
+                </label>
+                <p class="mode-note">PDFの全ページ中央に画像または文字を重ねます。</p>
+            </div>
+        </div>
+
+        <div id="status-message" class="status-box">操作を選択してください。</div>
+
+        <section id="merge-section" class="feature-section hidden">
+            <h2 class="feature-title">結合</h2>
+            <p class="feature-copy">複数PDFを追加し、リストをドラッグして順番を入れ替えられます。</p>
+            <div class="input-group">
+                <input type="text" id="pdf-name" placeholder="保存ファイル名（未入力なら自動設定）">
+            </div>
+        </section>
+
+        <section id="split-section" class="feature-section hidden">
+            <h2 class="feature-title">分割</h2>
+            <p class="feature-copy">アップロード済みPDFの先頭ファイルから必要なページだけを抽出します。</p>
+            <div id="split-info" style="display:none; margin-top:15px;">
+                <p>ページ数: <span id="sp-count"></span></p>
+                <div class="input-group">
+                    <input type="text" id="split-name" placeholder="保存ファイル名">
+                    <input type="text" id="split-range" placeholder="抽出範囲 例: 1-3,5">
+                </div>
+            </div>
+        </section>
+
+        <section id="watermark-section" class="feature-section hidden">
+            <h2 class="feature-title">ウォーターマーク</h2>
+            <p class="feature-copy">アップロード済みPDFに PNG / JPG / SVG または文字を中央に重ねます。結合後・分割後のPDFにも適用できます。</p>
+
+            <div id="wm-info" style="display:none; margin-top:15px;">
+                <div class="input-group">
+                    <label for="wm-type" style="font-weight:bold; font-size:0.95rem; color:#4a5568;">ウォーターマークの種類</label>
+                    <select id="wm-type">
+                        <option value="image" selected>画像 (PNG / JPG / SVG)</option>
+                        <option value="text">文字</option>
+                    </select>
+                </div>
+
+                <div id="wm-settings" style="display:none;">
+                    <div class="option-container">
+                        <div id="wm-image-fields" class="stacked-settings">
+                            <div class="input-group" style="margin-top:0;">
+                                <label for="wm-img-input" style="font-weight:bold; font-size:0.95rem; color:#4a5568;">画像ファイル (PNG / JPG / SVG)</label>
+                                <input type="file" id="wm-img-input" accept="image/png, image/jpeg, image/svg+xml">
+                            </div>
+
+                            <div>
+                                <div style="font-weight:bold; font-size:0.95rem; color:#4a5568; margin-bottom:10px;">画像サイズ</div>
+                                <div class="settings-row" style="padding-left: 0;">
+                                    <div class="setting-item" style="width: 100%;">
+                                        <label for="wm-scale" style="width: 90px;">拡大率 (%)</label>
+                                        <input type="range" id="wm-scale" min="10" max="200" value="100" style="flex:1;">
+                                        <span id="wm-scale-val" style="width: 40px; text-align: right;">100%</span>
+                                    </div>
+                                    <div class="setting-item">
+                                        <label for="wm-width">幅 (px)</label>
+                                        <input type="number" id="wm-width" min="1" style="width: 100px; padding: 6px; border: 1px solid #cbd5e0; border-radius: 4px;">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label for="wm-height">高さ (px)</label>
+                                        <input type="number" id="wm-height" min="1" style="width: 100px; padding: 6px; border: 1px solid #cbd5e0; border-radius: 4px;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="wm-text-fields" class="stacked-settings" style="display:none;">
+                            <div class="input-group" style="margin-top:0;">
+                                <label for="wm-text" style="font-weight:bold; font-size:0.95rem; color:#4a5568;">表示する文字</label>
+                                <input type="text" id="wm-text" placeholder="CONFIDENTIAL">
+                            </div>
+
+                            <div class="settings-row" style="padding-left: 0;">
+                                <div class="setting-item">
+                                    <label for="wm-font-size">文字サイズ</label>
+                                    <input type="number" id="wm-font-size" min="8" max="300" value="48" style="width: 100px; padding: 6px; border: 1px solid #cbd5e0; border-radius: 4px;">
+                                </div>
+                                <div class="setting-item">
+                                    <label for="wm-text-color">文字色</label>
+                                    <input type="color" id="wm-text-color" value="#808080" style="width: 56px; height: 36px; padding: 0; border: 1px solid #cbd5e0; border-radius: 4px;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stacked-settings" style="margin-top:15px;">
+                            <div>
+                                <div style="font-weight:bold; font-size:0.95rem; color:#4a5568; margin-bottom:10px;">透明度</div>
+                                <div class="settings-row" style="padding-left: 0;">
+                                    <div class="setting-item" style="width: 100%;">
+                                        <label for="wm-opacity" style="width: 90px;">透明度 (%)</label>
+                                        <input type="range" id="wm-opacity" min="0" max="100" value="50" style="flex:1;">
+                                        <span id="wm-opacity-val" style="width: 40px; text-align: right;">50%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style="font-weight:bold; font-size:0.95rem; color:#4a5568; margin-bottom:10px;">回転</div>
+                                <div class="settings-row" style="padding-left: 0;">
+                                    <div class="setting-item" style="width: 100%;">
+                                        <label for="wm-rotation" style="width: 90px;">角度 (°)</label>
+                                        <input type="range" id="wm-rotation" min="-180" max="180" value="0" style="flex:1;">
+                                        <span id="wm-rotation-val" style="width: 50px; text-align: right;">0°</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <input type="text" id="wm-name" placeholder="保存ファイル名">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2 class="feature-title">保存形式</h2>
+            <p class="feature-copy">処理後のPDFをそのまま保存するか、全ページをWebP画像にしてZIP保存できます。</p>
+            <div class="output-grid">
+                <label class="option-group">
+                    <input type="checkbox" id="output-pdf-check" checked>
+                    PDFで保存
+                </label>
+                <label class="option-group">
+                    <input type="checkbox" id="output-webp-check">
+                    WebP ZIPで保存
+                </label>
+            </div>
+            <div id="webp-quality-wrap" class="settings-row output-quality hidden" style="padding-left:0;">
+                <div class="setting-item">
+                    <label for="webp-quality">WebP画質</label>
+                    <select id="webp-quality">
+                        <option value="small">軽量</option>
+                        <option value="standard" selected>標準</option>
+                        <option value="high">高品質</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <div class="btn-row">
+            <button id="preview-btn" disabled style="background-color: #ed8936; color: white;">プレビュー</button>
+            <button id="action-btn" disabled style="background-color: #4299e1; color: white; flex: 2;">処理して保存</button>
+            <button id="clear-btn" style="background-color: #feb2b2; color: #9b2c2c;">クリア</button>
+        </div>
+    </div>
+</div>
+
+<div class="preview-side">
+    <div class="preview-header">プレビュー</div>
+    <div id="no-preview-msg" class="no-preview">ファイルを選択してプレビューしてください</div>
+    <iframe id="pdf-viewer" referrerpolicy="no-referrer" style="display:none;"></iframe>
+</div>
+
+<script src="../../../vendor/pdf-lib.min.js"></script>
+<script src="../../../vendor/pdf.min.js"></script>
+<script src="../../../vendor/jszip.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { generateQr, parseDataUri } = require('../electron/qr-service');
 
 const onePixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -21,4 +23,13 @@ test('QR input and logo data URLs are validated', async () => {
   await assert.rejects(() => generateQr({ text: 'x', logoDataUrl: 'https://example.com/logo.png' }, process.cwd()), /data URL/);
   assert.match(parseDataUri(onePixel), /^data:image\/png;base64,/);
   assert.throws(() => parseDataUri('data:text/html;base64,AAAA'), /画像/);
+});
+
+test('default QR logo is the read-only upstream public logo', async () => {
+  const root = path.join(__dirname, '..');
+  const logo = fs.readFileSync(path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png'));
+  const result = await generateQr({ text: 'default-logo-check' }, root);
+  const match = /<image href="data:image\/png;base64,([^"]+)"/iu.exec(result.svg);
+  assert.ok(match, 'default SVG should contain an embedded logo image');
+  assert.deepEqual(Buffer.from(match[1], 'base64'), logo);
 });

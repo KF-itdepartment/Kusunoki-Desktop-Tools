@@ -2,6 +2,8 @@
   'use strict';
 
   const desktop = window.desktop;
+  const generated = window.KusunokiGeneratedUpstream;
+  if (!generated) throw new Error('Generated upstream adapter is required.');
   const state = {
     view: 'qr-view',
     qr: null,
@@ -11,7 +13,8 @@
     pendingWatermark: null,
     watermarkFile: null,
     lastPdf: null,
-    objectUrls: new Set()
+    objectUrls: new Set(),
+    draggedPdfIndex: null
   };
 
   const $ = (id) => document.getElementById(id);
@@ -132,7 +135,7 @@
     try {
       if (!state.qr) throw new Error('先にQRコードを生成してください。');
       const data = await svgToPng(state.qr.svg);
-      state.pendingWatermark = { data, mimeType: 'image/png', fileName: 'qr-watermark.png', text: state.qr.text };
+      state.pendingWatermark = generated.qr.createPdfHandoff(data, state.qr.text);
       setView('pdf-view'); configureWatermarkPanel(); setStatus('pdf-status', 'QRコードをウォーターマークに設定しました。'); $('pdf-handoff').hidden = false;
     } catch (error) { setStatus('qr-status', error instanceof Error ? error.message : 'PDFへの受渡しに失敗しました。', true); }
   }
@@ -152,11 +155,11 @@
   }
 
   async function generateBatchZip() {
-    const parsed = window.BatchUtils.parseBatchInput($('batch-urls').value, $('batch-names').value);
+    const parsed = generated.qr.batch.parseBatchInput($('batch-urls').value, $('batch-names').value);
     renderBatchErrors(parsed.errors);
     if (!parsed.items.length && !parsed.errors.length) { renderBatchErrors([{ line:null, reason:'生成するURLを1件以上入力してください。' }]); return; }
     if (!parsed.valid) { setStatus('batch-status', '入力を確認してください。', true); return; }
-    const items = window.BatchUtils.assignBatchFileNames(parsed.items); const button = $('batch-generate-btn'); button.disabled = true; $('batch-progress').hidden = false; $('batch-progress').max = items.length; $('batch-progress').value = 0;
+    const items = generated.qr.batch.assignBatchFileNames(parsed.items); const button = $('batch-generate-btn'); button.disabled = true; $('batch-progress').hidden = false; $('batch-progress').max = items.length; $('batch-progress').value = 0;
     const files = []; const errors = []; let next = 0; let completed = 0;
     async function worker() {
       while (true) {
@@ -178,9 +181,33 @@
 
   function formatTimestamp(date) { const pad=(value)=>String(value).padStart(2,'0'); return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`; }
 
+  function movePdfFile(index, delta) {
+    const target = index + delta;
+    if (target < 0 || target >= state.pdfFiles.length) return;
+    const [file] = state.pdfFiles.splice(index, 1);
+    state.pdfFiles.splice(target, 0, file);
+    renderPdfFiles();
+  }
+
   function renderPdfFiles() {
     const list = $('pdf-file-list'); list.replaceChildren();
-    state.pdfFiles.forEach((file, index) => { const item=document.createElement('li'); item.textContent=`${index+1}. ${file.name}`; list.append(item); });
+    state.pdfFiles.forEach((file, index) => {
+      const item = document.createElement('li');
+      item.dataset.index = String(index);
+      item.draggable = true;
+      const label = document.createElement('span');
+      label.textContent = `${index + 1}. ${file.name}`;
+      const actions = document.createElement('span');
+      actions.className = 'pdf-file-actions';
+      [['pdf-preview-file', 'プレビュー'], ['pdf-up', '↑'], ['pdf-down', '↓']].forEach(([action, text]) => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.dataset.pdfAction = action; button.dataset.index = String(index);
+        button.textContent = text;
+        button.disabled = action === 'pdf-up' ? index === 0 : action === 'pdf-down' ? index === state.pdfFiles.length - 1 : false;
+        actions.append(button);
+      });
+      item.append(label, actions); list.append(item);
+    });
     $('pdf-action-btn').disabled = state.pdfFiles.length === 0;
     $('pdf-preview-btn').disabled = !state.lastPdf;
   }
@@ -205,7 +232,7 @@
       }
       const operation=$('mode-split').checked ? 'split' : $('mode-watermark').checked && !$('mode-merge').checked ? 'watermark' : 'merge';
       const config={ range:$('split-range').value, pageNumbers:$('page-number-check').checked ? { style:$('page-number-style').value, fontSize:Number($('page-number-size').value), startPage:Number($('page-number-start').value) } : null, pageSize:$('page-size-check').checked ? { preset:$('page-size-target').value, dimension:$('page-size-dimension').value, orientation:$('page-size-orientation').value, width:Number($('page-size-width').value), height:Number($('page-size-height').value) } : null, spreadSplit:$('spread-split-check').checked, spreadOrder:$('spread-split-order').value, watermark };
-      const bytes=normalizeBytes(await desktop.pdf.process({ files:state.pdfFiles.map((file)=>file.data), operation, config })); state.lastPdf=bytes; renderPdfFiles(); previewPdf(bytes);
+      const bytes=normalizeBytes(await generated.pdf.process({ files:state.pdfFiles.map((file)=>file.data), operation, config })); state.lastPdf=bytes; renderPdfFiles(); previewPdf(bytes);
       if (!$('output-pdf-check').checked && !$('output-webp-check').checked) throw new Error('保存形式を1つ以上選択してください。');
       if ($('output-pdf-check').checked) downloadBytes(bytes, 'processed.pdf', 'application/pdf');
       if ($('output-webp-check').checked) await saveWebpZip(bytes);
@@ -243,7 +270,7 @@
       if (button.dataset.action==='asset-rename') { const name=window.prompt('新しい名前',card.querySelector('.asset-name').textContent); if (name) { await desktop.assets.rename(id,name); await loadAssets(); } return; }
       const loaded=await desktop.assets.read(id); const data=normalizeBytes(loaded.data);
       if (button.dataset.action==='asset-download') { downloadBytes(data,safeDownloadName(loaded.metadata.fileName,loaded.metadata.mimeType==='image/svg+xml'?'svg':loaded.metadata.mimeType==='image/jpeg'?'jpg':'png'),loaded.metadata.mimeType); return; }
-      state.pendingWatermark={data,mimeType:loaded.metadata.mimeType,fileName:loaded.metadata.fileName,text:loaded.metadata.text}; $('mode-watermark').checked=true; setView('pdf-view'); configureWatermarkPanel(); $('pdf-handoff').hidden=false; setStatus('pdf-status','素材をウォーターマークに設定しました。');
+      state.pendingWatermark=generated.qr.createPdfHandoff(data, loaded.metadata.text, loaded.metadata.fileName, loaded.metadata.mimeType); $('mode-watermark').checked=true; setView('pdf-view'); configureWatermarkPanel(); $('pdf-handoff').hidden=false; setStatus('pdf-status','素材をウォーターマークに設定しました。');
     } catch (error) { setStatus('pdf-status', error instanceof Error ? error.message : '素材操作に失敗しました。', true); }
   }
 
@@ -251,6 +278,10 @@
 
   function wireEvents() {
     setupTabs(); $('generate-btn').addEventListener('click',()=>void generateQr()); $('qr-text').addEventListener('keydown',(event)=>{if(event.key==='Enter')void generateQr();}); $('rotate-btn').addEventListener('click',()=>{state.qrAngle=(state.qrAngle+45)%360;$('angle-display').textContent=state.qrAngle;void generateQr();}); $('logo-upload').addEventListener('change',(event)=>void handleLogo(event)); $('no-logo-check').addEventListener('change',()=>{ $('logo-controls').style.opacity=$('no-logo-check').checked?'.45':'1'; $('rotate-btn').disabled=$('no-logo-check').checked; $('logo-upload').disabled=$('no-logo-check').checked; if (state.qr)void generateQr(); }); $('download-btn').addEventListener('click',()=>void saveQr()); $('save-asset-btn').addEventListener('click',()=>void saveQrAsset()); $('use-pdf-btn').addEventListener('click',()=>void useQrInPdf()); $('batch-generate-btn').addEventListener('click',()=>void generateBatchZip()); $('refresh-assets').addEventListener('click',()=>void loadAssets()); $('asset-list').addEventListener('click',(event)=>void assetAction(event)); $('check-update').addEventListener('click',()=>void checkUpdates()); $('release-link').addEventListener('click',async()=>{try{await desktop.updates.openRelease();}catch{setStatus('qr-status','Releaseページを開けません。',true);}});
+    $('pdf-file-list').addEventListener('click',(event)=>{const button=event.target.closest('button[data-pdf-action]');if(!button)return;const index=Number(button.dataset.index);if(button.dataset.pdfAction==='pdf-up')movePdfFile(index,-1);else if(button.dataset.pdfAction==='pdf-down')movePdfFile(index,1);else if(button.dataset.pdfAction==='pdf-preview-file'&&state.pdfFiles[index])previewPdf(state.pdfFiles[index].data);});
+    $('pdf-file-list').addEventListener('dragstart',(event)=>{const item=event.target.closest('li[data-index]');if(!item)return;state.draggedPdfIndex=Number(item.dataset.index);event.dataTransfer?.setData('text/plain',item.dataset.index);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});
+    $('pdf-file-list').addEventListener('dragover',(event)=>{if(state.draggedPdfIndex!==null)event.preventDefault();});
+    $('pdf-file-list').addEventListener('drop',(event)=>{event.preventDefault();const item=event.target.closest('li[data-index]');const from=state.draggedPdfIndex;state.draggedPdfIndex=null;if(!item||from===null)return;const to=Number(item.dataset.index);if(from===to)return;const [file]=state.pdfFiles.splice(from,1);state.pdfFiles.splice(to,0,file);renderPdfFiles();});
     $('pdf-inputs').addEventListener('change',async(event)=>{state.pdfFiles=[];for(const file of event.target.files||[]){state.pdfFiles.push({name:file.name,data:await readFileBytes(file)});}renderPdfFiles();}); $('mode-split').addEventListener('change',()=>{if($('mode-split').checked)$('mode-merge').checked=false;$('split-options').hidden=!$('mode-split').checked;}); $('mode-merge').addEventListener('change',()=>{if($('mode-merge').checked)$('mode-split').checked=false;$('split-options').hidden=!$('mode-split').checked;}); $('mode-watermark').addEventListener('change',configureWatermarkPanel); $('wm-type').addEventListener('change',configureWatermarkPanel); $('wm-img-input').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const raw=await readFileBytes(file);const isSvg=file.type==='image/svg+xml'||/\.svg$/iu.test(file.name);state.watermarkFile={name:file.name,data:isSvg?await svgToPng(new TextDecoder().decode(raw)):raw,mimeType:isSvg?'image/png':file.type};state.pendingWatermark=null;configureWatermarkPanel();}catch(error){setStatus('pdf-status',error instanceof Error?error.message:'画像を読み込めません。',true);}}); $('output-webp-check').addEventListener('change',()=>{$('webp-quality-wrap').hidden=!$('output-webp-check').checked;}); $('pdf-action-btn').addEventListener('click',()=>void processPdf()); $('pdf-preview-btn').addEventListener('click',()=>{if(state.lastPdf)previewPdf(state.lastPdf);}); $('pdf-clear-btn').addEventListener('click',()=>{state.pdfFiles=[];state.lastPdf=null;state.pendingWatermark=null;state.watermarkFile=null;$('pdf-inputs').value='';$('pdf-handoff').hidden=true;renderPdfFiles();setStatus('pdf-status','クリアしました。');});
   }
 

@@ -1,0 +1,21 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { listPackage } = require('@electron/asar');
+
+const root = path.resolve(__dirname, '..');
+const asar = path.join(root, 'dist', 'win-unpacked', 'resources', 'app.asar');
+if (!fs.existsSync(asar)) {
+  throw new Error(`packaged asar is missing: ${path.relative(root, asar)}`);
+}
+const entries = listPackage(asar).map((entry) => entry.replaceAll('\\', '/').replace(/^\/+/, ''));
+const required = [
+  'vendor/qr-generator/public/logo.png',
+  'renderer/generated/upstream-adapter.js',
+  'renderer/generated/upstream/qr/script.js',
+  'renderer/generated/upstream/pdf/script.js',
+  'renderer/vendor/pdf-lib.min.js',
+  'renderer/vendor/pdf.worker.min.js'
+];
+const missing = required.filter((entry) => !entries.includes(entry));
+if (missing.length) throw new Error(`packaged files are missing: ${missing.join(', ')}`);
+console.log(`Verified ${required.length} upstream/local assets in ${path.relative(root, asar)}.`);

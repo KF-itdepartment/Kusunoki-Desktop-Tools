@@ -1,39 +1,145 @@
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// This is the only build-time boundary between the read-only upstream
+// submodules and the desktop shell. It copies source units into the package,
+// rewrites CDN references to local npm assets, and generates the bridge used
+// by the renderer. The output is deterministic and can be audited offline.
 const root = path.resolve(__dirname, '..');
-const vendor = path.join(root, 'renderer', 'vendor');
-fs.mkdirSync(vendor, { recursive: true });
+const renderer = path.join(root, 'renderer');
+const vendor = path.join(renderer, 'vendor');
+const generated = path.join(renderer, 'generated', 'upstream');
+const qrSource = path.join(root, 'vendor', 'qr-generator', 'public');
+const pdfSource = path.join(root, 'vendor', 'pdf-editor');
 
-function copyIfPresent(source, target) {
-  if (!fs.existsSync(source)) return false;
-  fs.copyFileSync(source, target);
-  return true;
+fs.mkdirSync(vendor, { recursive: true });
+fs.mkdirSync(path.join(generated, 'qr'), { recursive: true });
+fs.mkdirSync(path.join(generated, 'pdf'), { recursive: true });
+
+function requireFile(file) {
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    throw new Error(`upstream staging source is missing: ${path.relative(root, file)}`);
+  }
+  return file;
 }
 
+function copy(source, target) {
+  requireFile(source);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(source, target);
+  return target;
+}
+
+function hash(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function writeUtf8(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, value, 'utf8');
+}
+
+function findFirst(rootDirectory, candidates) {
+  for (const candidate of candidates) {
+    const file = path.join(rootDirectory, ...candidate);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
+// Stage browser dependencies from npm. The generated upstream PDF page is
+// transformed below to use these exact local filenames.
 const pdfjsRoot = path.join(root, 'node_modules', 'pdfjs-dist');
-const pdfjsCandidates = [
-  ['build', 'pdf.min.js'],
-  ['legacy', 'build', 'pdf.min.js']
-];
-const workerCandidates = [
-  ['build', 'pdf.worker.min.js'],
-  ['legacy', 'build', 'pdf.worker.min.js']
-];
+const pdfjs = findFirst(pdfjsRoot, [['build', 'pdf.min.js'], ['legacy', 'build', 'pdf.min.js']]);
+const worker = findFirst(pdfjsRoot, [['build', 'pdf.worker.min.js'], ['legacy', 'build', 'pdf.worker.min.js']]);
+const pdfLib = path.join(root, 'node_modules', 'pdf-lib', 'dist', 'pdf-lib.min.js');
+const jszip = path.join(root, 'node_modules', 'jszip', 'dist', 'jszip.min.js');
+if (!pdfjs || !worker || !fs.existsSync(pdfLib) || !fs.existsSync(jszip)) {
+  throw new Error('npm browser assets are missing; run npm install before staging vendors.');
+}
+copy(pdfjs, path.join(vendor, 'pdf.min.js'));
+copy(worker, path.join(vendor, 'pdf.worker.min.js'));
+copy(pdfLib, path.join(vendor, 'pdf-lib.min.js'));
+copy(jszip, path.join(vendor, 'jszip.min.js'));
 
-const pdfjs = pdfjsCandidates.find((parts) => fs.existsSync(path.join(pdfjsRoot, ...parts)));
-const worker = workerCandidates.find((parts) => fs.existsSync(path.join(pdfjsRoot, ...parts)));
-if (pdfjs) copyIfPresent(path.join(pdfjsRoot, ...pdfjs), path.join(vendor, 'pdf.min.js'));
-if (worker) copyIfPresent(path.join(pdfjsRoot, ...worker), path.join(vendor, 'pdf.worker.min.js'));
+// Stage the complete QR source unit. The shell uses the generated source
+// hash and batch adapter below, so a submodule update cannot be a no-op.
+const qrFiles = ['index.html', 'script.js', 'batch-utils.mjs', 'logo.png'];
+const qrManifest = {};
+for (const name of qrFiles) {
+  const source = path.join(qrSource, name);
+  copy(source, path.join(generated, 'qr', name));
+  qrManifest[name] = {
+    source: path.relative(root, source).replaceAll(path.sep, '/'),
+    sha256: hash(source)
+  };
+}
 
-copyIfPresent(
-  path.join(root, 'node_modules', 'jszip', 'dist', 'jszip.min.js'),
-  path.join(vendor, 'jszip.min.js')
-);
+// Copy the upstream PDF page and rewrite all three CDN script references.
+// Keep source and generated hashes so CI can prove that this exact source is
+// what the packaged bridge represents.
+const pdfHtmlSource = requireFile(path.join(pdfSource, 'index.html'));
+const pdfScriptSource = requireFile(path.join(pdfSource, 'script.js'));
+const pdfSpecSource = requireFile(path.join(pdfSource, 'SPECIFICATION.md'));
+const pdfHtml = fs.readFileSync(pdfHtmlSource, 'utf8')
+  .replaceAll('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js', '../../../vendor/pdf-lib.min.js')
+  .replaceAll('https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js', '../../../vendor/pdf.min.js')
+  .replaceAll('https://unpkg.com/jszip@3.10.1/dist/jszip.min.js', '../../../vendor/jszip.min.js');
+const pdfScript = fs.readFileSync(pdfScriptSource, 'utf8')
+  .replaceAll('https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js', '../../../vendor/pdf.worker.min.js');
+writeUtf8(path.join(generated, 'pdf', 'index.html'), pdfHtml);
+writeUtf8(path.join(generated, 'pdf', 'script.js'), pdfScript);
+copy(pdfSpecSource, path.join(generated, 'pdf', 'SPECIFICATION.md'));
 
-// The application never loads a remote script. Keep a small manifest so a
-// packaged build can be audited without inspecting node_modules.
-fs.writeFileSync(path.join(vendor, 'MANIFEST.json'), JSON.stringify({
-  pdfjs: 'pdfjs-dist@3.11.174',
-  jszip: 'jszip@3.10.1'
-}, null, 2) + '\n', 'utf8');
+const pdfManifest = {
+  'index.html': {
+    source: path.relative(root, pdfHtmlSource).replaceAll(path.sep, '/'),
+    sha256: hash(pdfHtmlSource),
+    generatedSha256: hash(path.join(generated, 'pdf', 'index.html'))
+  },
+  'script.js': {
+    source: path.relative(root, pdfScriptSource).replaceAll(path.sep, '/'),
+    sha256: hash(pdfScriptSource),
+    generatedSha256: hash(path.join(generated, 'pdf', 'script.js'))
+  },
+  'SPECIFICATION.md': {
+    source: path.relative(root, pdfSpecSource).replaceAll(path.sep, '/'),
+    sha256: hash(pdfSpecSource)
+  }
+};
+
+const adapter = `'use strict';\n\n// Generated by scripts/stage-vendors.js. Do not edit by hand.\n(() => {\n  const metadata = ${JSON.stringify({
+  generatedBy: 'scripts/stage-vendors.js',
+  qr: qrManifest,
+  pdf: pdfManifest,
+  browser: {
+    pdfLib: 'renderer/vendor/pdf-lib.min.js',
+    pdfjs: 'renderer/vendor/pdf.min.js',
+    worker: 'renderer/vendor/pdf.worker.min.js',
+    jszip: 'renderer/vendor/jszip.min.js'
+  }
+}, null, 2)};\n\n  const batch = window.BatchUtils;\n  if (!batch) {\n    throw new Error('生成済みQR upstream adapterの前にbatch-utils.jsを読み込んでください。');\n  }\n  const copyBytes = (value) => {\n    if (value instanceof Uint8Array) return new Uint8Array(value);\n    if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));\n    if (value && value.buffer instanceof ArrayBuffer) return new Uint8Array(value.buffer.slice(value.byteOffset || 0, (value.byteOffset || 0) + value.byteLength));\n    throw new TypeError('画像データの形式が不正です。');\n  };\n  const createPdfHandoff = (data, text, fileName = 'qr-watermark.png', mimeType = 'image/png') => ({\n    data: copyBytes(data),\n    text: String(text || ''),\n    fileName: String(fileName || 'qr-watermark.png'),\n    mimeType: String(mimeType || 'image/png')\n  });\n  const processPdf = (payload) => window.desktop.pdf.process(payload);\n  window.KusunokiGeneratedUpstream = Object.freeze({\n    metadata: Object.freeze(metadata),\n    qr: Object.freeze({\n      source: 'generated/upstream/qr/script.js',\n      sourceHash: metadata.qr['script.js'].sha256,\n      batchSource: 'generated/upstream/qr/batch-utils.mjs',\n      batchSourceHash: metadata.qr['batch-utils.mjs'].sha256,\n      batch,\n      createPdfHandoff\n    }),\n    pdf: Object.freeze({\n      source: 'generated/upstream/pdf/script.js',\n      sourceHash: metadata.pdf['script.js'].sha256,\n      html: 'generated/upstream/pdf/index.html',\n      process: processPdf\n    })\n  });\n})();\n`;
+writeUtf8(path.join(renderer, 'generated', 'upstream-adapter.js'), adapter);
+
+const manifest = {
+  schema: 2,
+  generatedBy: 'scripts/stage-vendors.js',
+  upstream: {
+    qr: qrManifest,
+    pdf: pdfManifest
+  },
+  browser: {
+    pdfLib: { package: 'pdf-lib', file: 'pdf-lib.min.js', sha256: hash(path.join(vendor, 'pdf-lib.min.js')) },
+    pdfjs: { package: 'pdfjs-dist@3.11.174', file: 'pdf.min.js', sha256: hash(path.join(vendor, 'pdf.min.js')) },
+    worker: { package: 'pdfjs-dist@3.11.174', file: 'pdf.worker.min.js', sha256: hash(path.join(vendor, 'pdf.worker.min.js')) },
+    jszip: { package: 'jszip', file: 'jszip.min.js', sha256: hash(path.join(vendor, 'jszip.min.js')) }
+  },
+  adapter: {
+    file: 'renderer/generated/upstream-adapter.js',
+    sha256: hash(path.join(renderer, 'generated', 'upstream-adapter.js'))
+  }
+};
+writeUtf8(path.join(vendor, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+console.log(`Staged ${Object.keys(qrManifest).length} QR and ${Object.keys(pdfManifest).length} PDF upstream files plus local browser assets.`);

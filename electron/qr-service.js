@@ -39,7 +39,10 @@ function parseDataUri(value) {
 
 function loadDefaultLogo(rootDirectory) {
   const candidates = [
-    path.join(rootDirectory, 'vendor', 'qr-generator', 'logo.png'),
+    path.join(rootDirectory, 'vendor', 'qr-generator', 'public', 'logo.png'),
+    // Keep the generated copy as a package fallback for source archives that
+    // omit submodule working trees. The submodule path above is canonical.
+    path.join(rootDirectory, 'renderer', 'generated', 'upstream', 'qr', 'logo.png'),
     path.join(rootDirectory, 'renderer', 'assets', 'logo.png')
   ];
   for (const candidate of candidates) {

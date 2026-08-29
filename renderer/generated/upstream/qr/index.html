@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR generator</title>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 40px 16px;
+            background-color: #f4f7f9;
+            color: #2d3748;
+        }
+
+        h1 {
+            margin: 0 0 24px;
+        }
+
+        .app-shell {
+            width: min(100%, 920px);
+            margin: 0 auto;
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin: 0 auto 24px;
+            border-bottom: 1px solid #cbd5e0;
+        }
+
+        .tab {
+            border: 1px solid transparent;
+            border-bottom: 3px solid transparent;
+            border-radius: 8px 8px 0 0;
+            background: transparent;
+            color: #4a5568;
+            padding: 12px 24px;
+        }
+
+        .tab[aria-selected="true"] {
+            border-color: #cbd5e0;
+            border-bottom-color: #3182ce;
+            background: #fff;
+            color: #2b6cb0;
+        }
+
+        .tab:focus-visible,
+        button:focus-visible,
+        textarea:focus-visible,
+        input:focus-visible,
+        select:focus-visible {
+            outline: 3px solid rgba(49, 130, 206, 0.45);
+            outline-offset: 2px;
+        }
+
+        [role="tabpanel"] {
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px 20px 28px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        [role="tabpanel"][hidden] {
+            display: none;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        .single-url {
+            width: min(100%, 300px);
+            box-sizing: border-box;
+            padding: 10px;
+            border: 2px solid #cbd5e0;
+            border-radius: 6px;
+        }
+
+        /* ロゴなしチェックボックスのエリア */
+        .checkbox-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 15px 0;
+            background: #e2e8f0;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .checkbox-group input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
+
+        #generate-btn {
+            background-color: #4299e1;
+            color: white;
+        }
+
+        #rotate-btn {
+            background-color: #ed8936;
+            color: white;
+        }
+
+        #canvas-container {
+            margin: 20px auto 0;
+            border: 1px solid #ccc;
+            display: inline-block;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        #qr-image {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .batch-help {
+            margin: 6px auto 18px;
+            color: #4a5568;
+        }
+
+        .batch-inputs {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            text-align: left;
+        }
+
+        .batch-inputs label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-weight: bold;
+        }
+
+        .batch-inputs textarea {
+            width: 100%;
+            min-height: 260px;
+            box-sizing: border-box;
+            resize: vertical;
+            padding: 10px;
+            border: 2px solid #cbd5e0;
+            border-radius: 6px;
+            font: inherit;
+            line-height: 1.5;
+        }
+
+        #batch-generate-btn {
+            background: #3182ce;
+            color: #fff;
+        }
+
+        .batch-status {
+            margin: 18px auto 0;
+            max-width: 680px;
+            text-align: left;
+        }
+
+        .batch-status[hidden],
+        .batch-errors[hidden] {
+            display: none;
+        }
+
+        #batch-progress {
+            width: 100%;
+            height: 18px;
+            margin-top: 8px;
+            accent-color: #3182ce;
+        }
+
+        .batch-errors {
+            max-width: 680px;
+            margin: 18px auto 0;
+            padding: 12px 18px;
+            border: 1px solid #fc8181;
+            border-radius: 8px;
+            background: #fff5f5;
+            color: #9b2c2c;
+            text-align: left;
+        }
+
+        .batch-errors h3 {
+            margin: 0 0 8px;
+            font-size: 1rem;
+        }
+
+        .batch-errors ul {
+            margin: 0;
+            padding-left: 22px;
+        }
+
+        @media (max-width: 680px) {
+            body {
+                padding: 24px 10px;
+            }
+
+            [role="tabpanel"] {
+                padding-left: 12px;
+                padding-right: 12px;
+            }
+
+            .tabs {
+                gap: 4px;
+            }
+
+            .tab {
+                flex: 1;
+                padding: 10px 8px;
+            }
+
+            .batch-inputs {
+                grid-template-columns: 1fr;
+            }
+
+            .batch-inputs textarea {
+                min-height: 180px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="app-shell">
+        <h1>QRコード生成</h1>
+
+        <div class="tabs" role="tablist" aria-label="QRコード生成モード">
+            <button class="tab" id="single-tab" type="button" role="tab" aria-selected="true"
+                aria-controls="single-panel" tabindex="0">1件生成</button>
+            <button class="tab" id="batch-tab" type="button" role="tab" aria-selected="false"
+                aria-controls="batch-panel" tabindex="-1">一括生成</button>
+        </div>
+
+        <section id="single-panel" role="tabpanel" aria-labelledby="single-tab">
+            <div class="controls">
+                <input type="text" id="qr-text" class="single-url" placeholder="https://kusunokisai.com">
+                <button id="generate-btn" type="button">QRコード生成</button>
+            </div>
+
+            <div class="controls">
+                <label class="checkbox-group">
+                    <input type="checkbox" id="no-logo-check">
+                    真ん中のロゴ画像なしで作成する
+                </label>
+            </div>
+
+            <div id="logo-controls-container">
+                <div class="controls">
+                    <label>ロゴ操作:</label>
+                    <button id="rotate-btn" type="button">ロゴを45度回転</button>
+                </div>
+
+                <p>現在のロゴ角度: <span id="angle-display">315</span>度</p>
+
+                <div class="controls">
+                    <label>ロゴ画像をアップロード: </label>
+                    <input type="file" id="logo-upload" accept="image/*">
+                </div>
+            </div>
+
+            <div id="canvas-container">
+                <img id="qr-image" style="display: none;" alt="QRコード">
+            </div>
+
+            <div class="controls">
+                <button id="download-btn" type="button" disabled style="background-color: #ccc; color: white;">
+                    画像を保存する
+                </button>
+                <label for="download-format">保存形式:</label>
+                <select id="download-format" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                    <option value="svg">SVG</option>
+                    <option value="png" selected>PNG</option>
+                </select>
+                <input type="text" id="name-text" placeholder="ファイル名"
+                    style="width: 200px; max-width: 100%; box-sizing: border-box; padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+            </div>
+        </section>
+
+        <section id="batch-panel" role="tabpanel" aria-labelledby="batch-tab" hidden>
+            <p class="batch-help">URLとファイル名を1行ずつ入力してください（対応する行が同じQRになります）。URLは最大100件です。</p>
+            <div class="batch-inputs">
+                <label for="batch-urls">
+                    URL（必須）
+                    <textarea id="batch-urls" rows="10"
+                        placeholder="https://example.com/first&#10;https://example.com/second"
+                        spellcheck="false"></textarea>
+                </label>
+                <label for="batch-names">
+                    ファイル名（任意）
+                    <textarea id="batch-names" rows="10"
+                        placeholder="first&#10;second.png"
+                        spellcheck="false"></textarea>
+                </label>
+            </div>
+            <div class="controls">
+                <button id="batch-generate-btn" type="button">一括生成してZIPを保存</button>
+            </div>
+
+            <div id="batch-status" class="batch-status" role="status" aria-live="polite" hidden>
+                <div id="batch-status-text">準備中</div>
+                <progress id="batch-progress" max="1" value="0" aria-label="一括生成の進捗">0%</progress>
+            </div>
+
+            <div id="batch-errors" class="batch-errors" role="alert" aria-live="assertive" hidden>
+                <h3>入力または生成のエラー</h3>
+                <ul id="batch-error-list"></ul>
+            </div>
+        </section>
+    </main>
+
+    <script type="module" src="script.js"></script>
+</body>
+
+</html>
