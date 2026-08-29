@@ -1,0 +1,84 @@
+{
+  "name": "kusunoki-desktop-tools",
+  "productName": "Kusunoki Desktop Tools",
+  "version": "1.0.0",
+  "description": "Offline QR generator and PDF editor for Windows, macOS and Linux.",
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "author": "KF-itdepartment",
+  "license": "MIT",
+  "repository": "https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools.git",
+  "scripts": {
+    "prepare": "node scripts/stage-vendors.js",
+    "dev": "electron .",
+    "start": "electron .",
+    "test": "node --test --test-isolation=none test/*.test.js",
+    "build": "npm run prepare && electron-builder --dir",
+    "pack": "npm run prepare && electron-builder",
+    "pack:dry-run": "npm run prepare && electron-builder --dir --config.publish=never",
+    "sync-upstreams": "node scripts/sync-upstreams.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2",
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "3.11.174",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.kf-itdepartment.kusunoki-desktop-tools",
+    "productName": "Kusunoki Desktop Tools",
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "scripts/**/*",
+      "vendor/**/*",
+      "package.json",
+      "node_modules/electron-updater/**/*",
+      "node_modules/jszip/**/*",
+      "node_modules/pdf-lib/**/*",
+      "node_modules/pdfjs-dist/**/*",
+      "node_modules/qrcode/**/*",
+      "node_modules/commander/**/*",
+      "node_modules/semver/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/lazy-val/**/*",
+      "node_modules/fs-extra/**/*",
+      "node_modules/js-yaml/**/*",
+      "node_modules/bluebird/**/*",
+      "node_modules/uuid/**/*",
+      "node_modules/parse-color/**/*",
+      "node_modules/uri-js/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "KF-itdepartment",
+      "repo": "Kusunoki-Desktop-Tools",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "identity": null
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "category": "Utility"
+    }
+  }
+}

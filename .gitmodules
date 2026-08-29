@@ -1,0 +1,6 @@
+[submodule "vendor/qr-generator"]
+	path = vendor/qr-generator
+	url = https://github.com/KF-itdepartment/QR-Generator.git
+[submodule "vendor/pdf-editor"]
+	path = vendor/pdf-editor
+	url = https://github.com/KF-itdepartment/pdf-editor.git

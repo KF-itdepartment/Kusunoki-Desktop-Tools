@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Kusunoki Desktop Tools</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">K</span><span>Kusunoki Desktop Tools</span><small id="app-version">v1.0.0</small></div>
+    <nav class="main-nav" aria-label="アプリ切替">
+      <button class="nav-button active" data-view="qr-view">QRコード</button>
+      <button class="nav-button" data-view="pdf-view">PDFエディター</button>
+      <button class="nav-button" data-view="assets-view">素材トレイ</button>
+    </nav>
+    <div class="top-actions"><button id="check-update" class="quiet-button">更新を確認</button></div>
+  </header>
+
+  <main class="page-wrap">
+    <section id="qr-view" class="view active" aria-labelledby="qr-heading">
+      <div class="section-heading"><div><p class="eyebrow">OFFLINE WORKSPACE</p><h1 id="qr-heading">QRコード生成</h1><p>文字列やURLから、ロゴ付きのQRコードをローカルで作成します。</p></div></div>
+      <div class="tabs" role="tablist" aria-label="QR生成モード">
+        <button class="tab active" id="single-tab" role="tab" aria-selected="true" aria-controls="qr-single">1件生成</button>
+        <button class="tab" id="batch-tab" role="tab" aria-selected="false" aria-controls="qr-batch">一括生成</button>
+      </div>
+      <div id="qr-single" class="panel tab-panel" role="tabpanel" aria-labelledby="single-tab">
+        <div class="form-grid two-column">
+          <div class="form-field wide"><label for="qr-text">QRコード化する文字列またはURL</label><input id="qr-text" type="text" maxlength="4096" placeholder="https://kusunokisai.com" autocomplete="off"></div>
+          <div class="form-field"><label for="name-text">ファイル名</label><input id="name-text" type="text" maxlength="160" placeholder="qr_code"></div>
+        </div>
+        <div class="control-row">
+          <button id="generate-btn" class="primary">QRコード生成</button>
+          <label class="check-label"><input id="no-logo-check" type="checkbox">中央のロゴなし</label>
+          <label class="inline-field">形式 <select id="download-format"><option value="png" selected>PNG</option><option value="svg">SVG</option></select></label>
+        </div>
+        <div id="logo-controls" class="control-row logo-controls">
+          <button id="rotate-btn" class="secondary" type="button">ロゴを45度回転</button><span>角度: <strong id="angle-display">315</strong>°</span>
+          <label class="file-button">ロゴ画像を選択<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
+        </div>
+        <div class="qr-result-wrap"><div id="qr-placeholder" class="empty-state">ここに生成結果が表示されます</div><img id="qr-image" alt="生成したQRコード" hidden></div>
+        <div class="control-row result-actions"><button id="download-btn" class="primary" disabled>画像を保存</button><button id="save-asset-btn" class="secondary" disabled>素材に保存</button><button id="use-pdf-btn" class="secondary" disabled>PDFエディターで使う</button></div>
+        <p id="qr-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+      <div id="qr-batch" class="panel tab-panel" role="tabpanel" aria-labelledby="batch-tab" hidden>
+        <p class="help">URLとファイル名を同じ行に入力してください。URLは最大100件、生成とZIP作成はこの端末内で行います。</p>
+        <div class="form-grid two-column"><div class="form-field"><label for="batch-urls">URL（必須）</label><textarea id="batch-urls" rows="12" placeholder="https://example.com/first&#10;https://example.com/second" spellcheck="false"></textarea></div><div class="form-field"><label for="batch-names">ファイル名（任意）</label><textarea id="batch-names" rows="12" placeholder="first&#10;second.png" spellcheck="false"></textarea></div></div>
+        <div class="control-row"><button id="batch-generate-btn" class="primary">一括生成してZIPを保存</button><progress id="batch-progress" max="1" value="0" hidden></progress></div>
+        <p id="batch-status" class="status" role="status" aria-live="polite"></p><div id="batch-errors" class="error-box" hidden></div>
+      </div>
+    </section>
+
+    <section id="pdf-view" class="view" aria-labelledby="pdf-heading" hidden>
+      <div class="section-heading"><div><p class="eyebrow">LOCAL PDF PROCESSING</p><h1 id="pdf-heading">PDFエディター</h1><p>PDFの結合・分割・番号・サイズ調整・ウォーターマークをローカル処理します。</p></div></div>
+      <div id="pdf-handoff" class="notice" hidden>QRコードをウォーターマークに設定しました。PDFを選択して処理してください。</div>
+      <div class="panel">
+        <div class="form-field"><label for="pdf-inputs">PDFファイル（複数選択可）</label><input id="pdf-inputs" type="file" accept="application/pdf" multiple></div><ol id="pdf-file-list" class="file-list"></ol>
+        <div class="option-grid"><label class="option-card"><input id="mode-merge" type="checkbox" checked><span><strong>結合</strong><small>すべてのPDFを順番に結合</small></span></label><label class="option-card"><input id="mode-split" type="checkbox"><span><strong>分割</strong><small>先頭PDFからページを抽出</small></span></label><label class="option-card"><input id="mode-watermark" type="checkbox"><span><strong>ウォーターマーク</strong><small>画像または文字を中央に重ねる</small></span></label></div>
+        <div id="split-options" class="sub-panel" hidden><div class="form-field"><label for="split-range">抽出範囲</label><input id="split-range" type="text" placeholder="例: 1-3,5"><small>空欄の場合は全ページ</small></div></div>
+        <div id="number-options" class="sub-panel"><label class="check-label"><input id="page-number-check" type="checkbox">ページ番号を追加</label><div class="form-grid three-column"><label class="inline-field">表示<select id="page-number-style"><option value="dash">- 1 -</option><option value="bracket">&lt; 1 &gt;</option><option value="fraction">1 / 5</option></select></label><label class="inline-field">文字サイズ<input id="page-number-size" type="number" value="10" min="8" max="300"></label><label class="inline-field">開始ページ<input id="page-number-start" type="number" value="1" min="1"></label></div></div>
+        <div class="sub-panel"><label class="check-label"><input id="page-size-check" type="checkbox">ページサイズを揃える</label><div class="form-grid three-column"><label class="inline-field">基準<select id="page-size-target"><option value="largest">最大ページ</option><option value="smallest">最小ページ</option><option value="A4" selected>A4</option><option value="A5">A5</option><option value="B4">B4</option><option value="B5">B5</option><option value="custom">任意</option></select></label><label class="inline-field">範囲<select id="page-size-dimension"><option value="page">幅と高さ</option><option value="width">幅だけ</option></select></label><label class="inline-field">向き<select id="page-size-orientation"><option value="portrait">縦</option><option value="landscape">横</option></select></label></div><div class="form-grid two-column"><label class="inline-field">幅 (mm)<input id="page-size-width" type="number" value="210" min="1"></label><label class="inline-field">高さ (mm)<input id="page-size-height" type="number" value="297" min="1"></label></div></div>
+        <div class="sub-panel"><label class="check-label"><input id="spread-split-check" type="checkbox">横長ページを中央で分割</label><label class="inline-field">順番<select id="spread-split-order"><option value="right-first">右 → 左</option><option value="left-first">左 → 右</option></select></label></div>
+        <div id="watermark-options" class="sub-panel" hidden><div class="form-grid two-column"><label class="inline-field">種類<select id="wm-type"><option value="image">画像 (PNG/JPEG/SVG)</option><option value="text">文字</option></select></label><label class="inline-field" id="wm-image-field">画像<input id="wm-img-input" type="file" accept="image/png,image/jpeg,image/svg+xml"></label></div><div id="wm-text-fields" class="form-grid three-column" hidden><label class="inline-field">文字<input id="wm-text" type="text" value="CONFIDENTIAL"></label><label class="inline-field">サイズ<input id="wm-font-size" type="number" value="48" min="8" max="300"></label><label class="inline-field">色<input id="wm-text-color" type="color" value="#808080"></label></div><div class="form-grid three-column"><label class="inline-field">透明度 (%)<input id="wm-opacity" type="number" value="50" min="0" max="100"></label><label class="inline-field">回転 (°)<input id="wm-rotation" type="number" value="0" min="-180" max="180"></label><label class="inline-field">倍率<input id="wm-scale" type="number" value="1" min="0.01" max="10" step="0.01"></label></div><p id="wm-source-status" class="muted"></p></div>
+        <div class="sub-panel"><div class="form-grid two-column"><label class="check-label"><input id="output-pdf-check" type="checkbox" checked>PDFで保存</label><label class="check-label"><input id="output-webp-check" type="checkbox">WebP ZIPでも保存</label></div><label class="inline-field" id="webp-quality-wrap" hidden>WebP画質<select id="webp-quality"><option value="small">軽量</option><option value="standard" selected>標準</option><option value="high">高品質</option></select></label></div>
+        <div class="control-row"><button id="pdf-preview-btn" class="secondary" disabled>プレビュー</button><button id="pdf-action-btn" class="primary" disabled>処理して保存</button><button id="pdf-clear-btn" class="quiet-button">クリア</button></div><p id="pdf-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="preview-panel"><h2>プレビュー</h2><div id="pdf-preview-empty" class="empty-state">処理後のPDFをプレビューできます</div><iframe id="pdf-viewer" title="PDFプレビュー" hidden></iframe></div>
+    </section>
+
+    <section id="assets-view" class="view" aria-labelledby="assets-heading" hidden>
+      <div class="section-heading"><div><p class="eyebrow">PERSISTENT MATERIALS</p><h1 id="assets-heading">素材トレイ</h1><p>保存したQR画像は再起動後も利用できます。ファイルはアプリのuserData配下へ安全に保存されます。</p></div><button id="refresh-assets" class="secondary">再読み込み</button></div>
+      <div id="asset-list" class="asset-grid"></div><div id="asset-empty" class="empty-state">保存された素材はありません</div>
+    </section>
+  </main>
+
+  <footer class="footer"><span>外部ネットワーク通信なし（更新確認を除く）</span><button id="release-link" class="link-button">GitHub Release</button></footer>
+  <script src="./vendor/pdf.min.js"></script>
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
