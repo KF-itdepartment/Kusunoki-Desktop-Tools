@@ -9,7 +9,7 @@
     if (!candidate) return { valid:false, reason:'URLが空です。' };
     try {
       const url = new URL(candidate);
-      if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) throw new Error();
+      if (!/^https?:\/\//iu.test(candidate) || (url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) throw new Error();
       return { valid:true, value:candidate };
     } catch { return { valid:false, reason:'http:// または https:// で始まる絶対URLを入力してください。' }; }
   }

@@ -18,7 +18,7 @@ function isTrustedSender(event) {
   if (!url.startsWith('file://')) return false;
   try {
     const parsed = new URL(url);
-    if (parsed.search || parsed.hash) return false;
+    if (parsed.host || parsed.search || parsed.hash) return false;
     const decodedPathname = decodeURIComponent(parsed.pathname);
     const windowsPath = /^\/[A-Za-z]:/u.test(decodedPathname)
       ? decodedPathname.slice(1).replaceAll('/', path.sep)

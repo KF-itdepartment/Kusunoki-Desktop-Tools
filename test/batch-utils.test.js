@@ -9,6 +9,7 @@ test('batch parser preserves physical line correspondence and URL rules', () => 
   assert.equal(parsed.errors.length, 2);
   assert.equal(parsed.errors[0].line, 2);
   assert.equal(parsed.errors[1].line, 3);
+  assert.equal(parseBatchInput('https:example.com', '').valid, false);
 });
 
 test('batch file names are portable, bounded, and case-insensitively unique', () => {

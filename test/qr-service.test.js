@@ -12,6 +12,8 @@ test('QR SVG is generated locally with high correction and optional logo', async
   const withLogo = await generateQr({ text: 'hello', logoDataUrl: onePixel, angle: 45 }, process.cwd());
   assert.match(withLogo.svg, /<image href="data:image\/png;base64,/i);
   assert.match(withLogo.svg, /rotate\(45\)/i);
+  const customDefault = await generateQr({ text: 'hello', logoDataUrl: onePixel }, process.cwd());
+  assert.match(customDefault.svg, /rotate\(0\)/i);
 });
 
 test('QR input and logo data URLs are validated', async () => {
