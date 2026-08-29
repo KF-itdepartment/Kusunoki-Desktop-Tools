@@ -3,24 +3,25 @@ name: Release desktop applications
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
-# The workflow creates tags only after the candidate has passed the complete
-# test/build gate. The marker on the version commit prevents that commit from
-# recursively starting another release.
+# The workflow selects a candidate without changing main. Every OS job applies
+# and tests that candidate in its own checkout. Only publish, after all build
+# jobs and artifact checks pass, may create/push the version commit and tag.
 permissions:
   contents: write
 
 jobs:
   prepare:
-    if: ${{ !contains(github.event.head_commit.message, '[release-version]') }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
+      skip: ${{ steps.version.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,44 +30,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Test and build the unchanged candidate
-        run: |
-          set -euo pipefail
-          npm test
-          npm run build
-      - name: Bump only an already-released version, then retest
+      - name: Select candidate without publishing
         id: version
         run: |
           set -euo pipefail
           current="$(node -p "require('./package.json').version")"
-          candidate="$current"
-          if git rev-parse --verify --quiet "refs/tags/v${current}" >/dev/null; then
-            npm version patch --no-git-tag-version
-            candidate="$(node -p "require('./package.json').version")"
+          if ! [[ "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package version is not a stable semver: ${current}" >&2
+            exit 1
+          fi
+          tag="v${current}"
+          head_subject="$(git log -1 --format=%s)"
+          candidate="${current}"
+          skip=false
+          # A successful publish pushes a [release-version] commit with
+          # [skip ci]. If that push event is manually retried after its tag
+          # exists, do not create a second release. An untagged marker from a
+          # failed historical run is deliberately reusable at this version.
+          if [[ "${head_subject}" == *"[release-version]"* ]] && git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            skip=true
+          elif git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            candidate="$(node -e 'const [major, minor, patch] = process.argv[1].split(".").map(Number); console.log(`${major}.${minor}.${patch + 1}`);' "${current}")"
             if git rev-parse --verify --quiet "refs/tags/v${candidate}" >/dev/null; then
               echo "candidate tag v${candidate} already exists" >&2
               exit 1
             fi
-            # A version change is itself a candidate and must pass the same
-            # gate before either the commit or tag is made permanent.
-            npm test
-            npm run build
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add package.json package-lock.json
-            git commit -m "chore: release v${candidate} [release-version]"
-            git push origin HEAD:main
           fi
           echo "version=${candidate}" >> "$GITHUB_OUTPUT"
-          # Build jobs consume this exact tested commit. Tag creation is
-          # intentionally deferred to publish, after every OS succeeds.
+          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
+          # Build jobs consume this exact, unchanged base commit and apply the
+          # selected version before testing/packaging.
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
+    if: ${{ needs.prepare.outputs.skip != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +86,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Apply release candidate version in this build
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version
       - run: npm test
       - name: Package Windows x64 NSIS
         if: matrix.name == 'windows-x64'
@@ -139,6 +139,7 @@ jobs:
 
   publish:
     needs: [prepare, build]
+    if: ${{ needs.prepare.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -146,14 +147,38 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create the release tag after all builds pass
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ensure main did not advance during the build gate
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          test "$(git rev-parse origin/main)" = "${BASE_SHA}"
+      - name: Create and push the tested release-version commit
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          npm version "${RELEASE_VERSION}" --no-git-tag-version
+          test "$(node -p "require('./package.json').version")" = "${RELEASE_VERSION}"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if ! git diff --quiet -- package.json package-lock.json; then
+            git add package.json package-lock.json
+            git commit -m "chore: release v${RELEASE_VERSION} [release-version] [skip ci]"
+            git push origin HEAD:main
+          fi
+          echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Create and push the release tag after all builds pass
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
-          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+          if git ls-remote --exit-code --refs origin "refs/tags/${tag}" >/dev/null 2>&1; then
             echo "release tag ${tag} already exists" >&2
             exit 1
           fi

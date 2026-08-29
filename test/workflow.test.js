@@ -5,12 +5,16 @@ const path = require('node:path');
 
 test('release workflow preserves 1.0.0 first release and gates tags behind tests', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
-  assert.match(workflow, /refs\/tags\/v\$\{current\}/);
-  assert.match(workflow, /npm test[ \t]*\n[ \t]+npm run build/);
+  assert.match(workflow, /refs\/tags\/\$\{tag\}/);
+  assert.match(workflow, /npm test/);
+  assert.match(workflow, /npm run pack/);
   assert.match(workflow, /needs\.prepare\.outputs\.sha/);
   assert.match(workflow, /git tag -a "\$\{tag\}" "\$\{RELEASE_SHA\}"/);
   assert.match(workflow, /git push origin "\$\{tag\}"/);
   assert.match(workflow, /\[release-version\]/);
+  assert.match(workflow, /\[skip ci\]/);
+  assert.match(workflow, /npm version "\$\{\{ needs\.prepare\.outputs\.version \}\}" --no-git-tag-version/u);
+  assert.match(workflow, /skip: \$\{\{ steps\.version\.outputs\.skip \}\}/u);
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /windows-latest/);
   assert.match(workflow, /macos-latest/);
@@ -18,7 +22,14 @@ test('release workflow preserves 1.0.0 first release and gates tags behind tests
   const publishIndex = workflow.indexOf('\n  publish:');
   const tagIndex = workflow.indexOf('git tag -a');
   assert.ok(publishIndex >= 0 && tagIndex > publishIndex, 'release tag must be created only in publish');
-  assert.doesNotMatch(workflow.slice(0, publishIndex), /git tag|push origin [^H]/u);
+  const prepareSection = workflow.slice(0, workflow.indexOf('\n  build:'));
+  assert.doesNotMatch(prepareSection, /git tag|git commit|git push/u);
+  assert.match(workflow, /build:\n    needs: prepare\n    if: \$\{\{ needs\.prepare\.outputs\.skip != 'true' \}\}/u);
+  assert.match(workflow, /publish:\n    needs: \[prepare, build\]\n    if: \$\{\{ needs\.prepare\.outputs\.skip != 'true' \}\}/u);
+  assert.match(workflow, /head_subject[\s\S]{0,500}\[release-version\][\s\S]{0,500}skip=true/u);
+  assert.match(workflow, /git diff --quiet -- package\.json package-lock\.json/u);
+  assert.match(workflow, /git push origin HEAD:main/u);
+  assert.match(workflow, /Ensure main did not advance during the build gate/u);
   assert.doesNotMatch(workflow, /npm version patch[\s\S]{0,300}git tag[\s\S]{0,30}npm test/);
   assert.doesNotMatch(workflow, /submodules:\s*recursive/u);
 });
