@@ -10,6 +10,7 @@
   "repository": "https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools.git",
   "scripts": {
     "prepare": "node scripts/stage-vendors.js",
+    "stage:vendors": "node scripts/stage-vendors.js",
     "dev": "electron .",
     "start": "electron .",
     "test": "node --test --test-isolation=none test/*.test.js",
