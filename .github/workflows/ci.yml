@@ -33,6 +33,17 @@ jobs:
           KUSUNOKI_STAGE_FALLBACK: '1'
         run: npm run stage:vendors
       - run: npm run build
+      - name: Configure Chromium sandbox helper (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sandbox_path="node_modules/electron/dist/chrome-sandbox"
+          test -f "$sandbox_path"
+          sudo chown root:root "$sandbox_path"
+          sudo chmod 4755 "$sandbox_path"
+          test "$(stat -c '%u:%g' "$sandbox_path")" = "0:0"
+          test "$(stat -c '%a' "$sandbox_path")" = "4755"
       - name: Electron hidden-window smoke
         if: runner.os != 'Linux'
         run: npm run electron:smoke

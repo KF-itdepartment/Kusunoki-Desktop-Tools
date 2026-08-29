@@ -31,6 +31,18 @@ test('public CI and release use committed generated artifacts without private su
   assert.match(ci, /KUSUNOKI_STAGE_FALLBACK/);
 });
 
+test('Linux Electron smoke keeps the Chromium sandbox enabled', () => {
+  const ci = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  assert.match(ci, /Configure Chromium sandbox helper \(Linux\)/u);
+  assert.match(ci, /if: runner\.os == 'Linux'/u);
+  assert.match(ci, /sandbox_path="node_modules\/electron\/dist\/chrome-sandbox"/u);
+  assert.match(ci, /sudo chown root:root "\$sandbox_path"/u);
+  assert.match(ci, /sudo chmod 4755 "\$sandbox_path"/u);
+  assert.match(ci, /stat -c '%u:%g'/u);
+  assert.match(ci, /stat -c '%a'/u);
+  assert.doesNotMatch(ci, /--no-sandbox/u);
+});
+
 test('upstream sync gates private checkout on read-only UPSTREAM_TOKEN', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'sync-upstreams.yml'), 'utf8');
   assert.match(workflow, /UPSTREAM_TOKEN/);
