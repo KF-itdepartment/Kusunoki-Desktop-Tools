@@ -14,7 +14,7 @@
     "dev": "electron .",
     "start": "electron .",
     "electron:smoke": "node scripts/run-electron-smoke.js",
-    "test": "node --test --test-isolation=none test/*.test.js",
+    "test": "node --test test/*.test.js",
     "build": "npm run prepare && electron-builder --dir",
     "pack": "npm run prepare && electron-builder",
     "pack:dry-run": "npm run prepare && electron-builder --dir --config.publish=never",
