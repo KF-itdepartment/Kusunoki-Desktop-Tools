@@ -13,7 +13,9 @@ test('release workflow preserves 1.0.0 first release and gates tags behind tests
   assert.match(workflow, /git push origin "\$\{tag\}"/);
   assert.match(workflow, /\[release-version\]/);
   assert.match(workflow, /\[skip ci\]/);
-  assert.match(workflow, /npm version "\$\{\{ needs\.prepare\.outputs\.version \}\}" --no-git-tag-version/u);
+  assert.match(workflow, /npm version "\$\{\{ needs\.prepare\.outputs\.version \}\}" --no-git-tag-version --allow-same-version/u);
+  assert.match(workflow, /npm version "\$\{RELEASE_VERSION\}" --no-git-tag-version --allow-same-version/u);
+  assert.match(workflow, /candidate="\$\{current\}"/u);
   assert.match(workflow, /skip: \$\{\{ steps\.version\.outputs\.skip \}\}/u);
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /windows-latest/);
