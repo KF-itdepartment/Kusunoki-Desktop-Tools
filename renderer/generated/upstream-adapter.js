@@ -7,15 +7,15 @@
   "qr": {
     "index.html": {
       "source": "vendor/qr-generator/public/index.html",
-      "sha256": "78f01f54c5703d3662aa9a5d62e726556a439824e004de0836a8eef0a94d7486"
+      "sha256": "a077f99c637073a2e09cc3ffd93a5bac4475d60b491e6ce77b2fb8a9a7bcb539"
     },
     "script.js": {
       "source": "vendor/qr-generator/public/script.js",
-      "sha256": "9efb4a7a24470040b3c407432f53f75432fb88db52e556eb68654606087fb356"
+      "sha256": "ede23ce1cc68564d86faf19bf54160d844c07fc431bb87d7bf5bb6a1a2c36994"
     },
     "batch-utils.mjs": {
       "source": "vendor/qr-generator/public/batch-utils.mjs",
-      "sha256": "5120e0eaee28e146fbf4a6278734db2401c7486ca2f9b198acec969ca6aa4ccd"
+      "sha256": "93d69fbd66a38dce4466b201a804dd3d1efb5fbd0d69e6b4b66d360ae7a38705"
     },
     "logo.png": {
       "source": "vendor/qr-generator/public/logo.png",
@@ -31,8 +31,8 @@
     },
     "batch-utils.js": {
       "source": "vendor/qr-generator/public/batch-utils.mjs",
-      "sha256": "5120e0eaee28e146fbf4a6278734db2401c7486ca2f9b198acec969ca6aa4ccd",
-      "generatedSha256": "82d4b720be3d029fd58acc8ccc59744d4435e5a49b65176c5da999527e27aeda"
+      "sha256": "93d69fbd66a38dce4466b201a804dd3d1efb5fbd0d69e6b4b66d360ae7a38705",
+      "generatedSha256": "60d2951036772ce0ce76d15eff1d2638cf8b5607cdcee16161825966d2de8f5b"
     }
   },
   "pdf": {

@@ -47,7 +47,12 @@ npm run verify:pack  # pack後にasarへ上流画面・ロゴ・同梱ライブ�
 ```bash
 git submodule update --init --recursive
 npm run sync-upstreams
+npm run verify:upstreams
 ```
+
+ローカルの `sync-upstreams` は、両submoduleと同期対象の親repoパスがcleanであることを先に確認し、両方の `origin/main` をfetchしてから取得したSHAへdetached checkoutします。その後 `stage-vendors.js` を実行し、submodule gitlinkとgenerated upstream・manifestを同じworking treeへ反映します。commit/pushは行わないため、結果を確認してから必要な変更だけを自分でcommitしてください。親repoの無関係な変更には触れません。未初期化・dirty・fetch・checkout・生成失敗時は非ゼロで終了し、fetch失敗時はcheckoutを開始しません。
+
+`npm run verify:upstreams` は読み取り専用です。submoduleのsourceが存在する場合はcanonical LFのSHA-256でsource、manifest、generatedファイルの整合性を検証し、CIなどでsourceが利用できない場合はsource checks skippedと明示してコミット済みgenerated fallbackだけを検証します。
 
 private upstreamをGitHub Actionsから同期する場合だけ、統合repoの Settings → Secrets and variables → Actions に `UPSTREAM_TOKEN` を登録します。Fine-grained PATまたは組織管理secretを使用し、対象は `KF-itdepartment/QR-Generator` と `KF-itdepartment/pdf-editor`、権限は各repoの `Contents: Read` のみにしてください。Actions workflowはこのtokenをupstreamのread checkoutにだけ渡し、統合repoへのcommit/pushにはGitHub Actionsの `GITHUB_TOKEN` を使います。広範な個人OAuth tokenや書き込み権限tokenを流用しないでください。`UPSTREAM_TOKEN` が未設定なら同期jobは `private upstream sync disabled` をjob summaryへ記録して成功終了します。
 

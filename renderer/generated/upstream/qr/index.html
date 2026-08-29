@@ -152,6 +152,58 @@
             color: #4a5568;
         }
 
+        .batch-mode-selector {
+            margin: 0 auto 18px;
+            padding: 12px 16px;
+            border: 1px solid #cbd5e0;
+            border-radius: 8px;
+            text-align: left;
+        }
+
+        .batch-mode-selector legend {
+            padding: 0 6px;
+            font-weight: bold;
+        }
+
+        .batch-mode-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .batch-mode-options label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .batch-mode-options input {
+            width: 18px;
+            height: 18px;
+        }
+
+        .batch-mode-panel[hidden] {
+            display: none;
+        }
+
+        .batch-csv-file {
+            display: block;
+            margin: 14px 0 0;
+            padding: 10px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 6px;
+            background: #f7fafc;
+            font: inherit;
+        }
+
+        .batch-csv-example {
+            margin: 8px 0 0;
+            color: #4a5568;
+            font-size: 0.95rem;
+            text-align: left;
+        }
+
         .batch-inputs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -175,6 +227,64 @@
             border: 2px solid #cbd5e0;
             border-radius: 6px;
             font: inherit;
+            line-height: 1.5;
+        }
+
+        .batch-inputs-textarea {
+            width: 100%;
+            min-height: 260px;
+            box-sizing: border-box;
+            resize: vertical;
+            padding: 10px;
+            border: 2px solid #cbd5e0;
+            border-radius: 6px;
+            font: inherit;
+            line-height: 1.5;
+        }
+
+        .line-numbered-textarea {
+            display: flex;
+            align-items: stretch;
+            width: 100%;
+            min-width: 0;
+            min-height: 260px;
+            box-sizing: border-box;
+            overflow: hidden;
+            border: 2px solid #cbd5e0;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        .line-number-gutter {
+            flex: 0 0 3.5rem;
+            box-sizing: border-box;
+            padding: 10px 8px;
+            overflow: hidden;
+            color: #718096;
+            background: #f7fafc;
+            border-right: 1px solid #e2e8f0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            font-size: 1rem;
+            line-height: 1.5;
+            text-align: right;
+            white-space: pre;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        .line-numbered-textarea textarea {
+            flex: 1 1 auto;
+            width: auto;
+            min-width: 0;
+            min-height: 0;
+            box-sizing: border-box;
+            resize: vertical;
+            padding: 10px;
+            overflow: auto;
+            border: 0;
+            border-radius: 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            font-size: 1rem;
             line-height: 1.5;
         }
 
@@ -248,6 +358,23 @@
             .batch-inputs textarea {
                 min-height: 180px;
             }
+
+            .batch-inputs-textarea {
+                min-height: 180px;
+            }
+
+            .line-numbered-textarea {
+                min-height: 180px;
+            }
+
+            .line-numbered-textarea textarea {
+                min-height: 0;
+            }
+
+            .batch-mode-options {
+                flex-direction: column;
+                gap: 10px;
+            }
         }
     </style>
 </head>
@@ -309,19 +436,60 @@
         </section>
 
         <section id="batch-panel" role="tabpanel" aria-labelledby="batch-tab" hidden>
-            <p class="batch-help">URLとファイル名を1行ずつ入力してください（対応する行が同じQRになります）。URLは最大100件です。</p>
-            <div class="batch-inputs">
-                <label for="batch-urls">
-                    URL（必須）
-                    <textarea id="batch-urls" rows="10"
-                        placeholder="https://example.com/first&#10;https://example.com/second"
-                        spellcheck="false"></textarea>
+            <p class="batch-help">入力モードを選び、URLは最大100件まで指定してください。</p>
+
+            <fieldset class="batch-mode-selector" aria-describedby="batch-mode-help">
+                <legend>一括入力モード</legend>
+                <div class="batch-mode-options" role="radiogroup" aria-label="一括入力モード">
+                    <label for="batch-mode-legacy">
+                        <input type="radio" id="batch-mode-legacy" name="batch-input-mode" value="legacy" checked>
+                        URLとファイル名を別々に入力
+                    </label>
+                    <label for="batch-mode-csv">
+                        <input type="radio" id="batch-mode-csv" name="batch-input-mode" value="csv">
+                        CSVを入力・アップロード
+                    </label>
+                </div>
+                <p id="batch-mode-help" class="batch-csv-example">CSVは「URL,ファイル名」の形式です。ファイル名は省略できます。</p>
+            </fieldset>
+
+            <div id="batch-legacy-panel" class="batch-mode-panel">
+                <div class="batch-inputs">
+                    <label for="batch-urls">
+                        URL（必須）
+                        <div class="line-numbered-textarea">
+                            <div class="line-number-gutter" aria-hidden="true"></div>
+                            <textarea id="batch-urls" rows="10"
+                                placeholder="https://example.com/first&#10;https://example.com/second"
+                                spellcheck="false"></textarea>
+                        </div>
+                    </label>
+                    <label for="batch-names">
+                        ファイル名（任意）
+                        <div class="line-numbered-textarea">
+                            <div class="line-number-gutter" aria-hidden="true"></div>
+                            <textarea id="batch-names" rows="10"
+                                placeholder="first&#10;second.png"
+                                spellcheck="false"></textarea>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div id="batch-csv-panel" class="batch-mode-panel" hidden>
+                <label for="batch-csv">
+                    CSV（URL,ファイル名）
+                    <div class="line-numbered-textarea">
+                        <div class="line-number-gutter" aria-hidden="true"></div>
+                        <textarea id="batch-csv" rows="10" class="batch-inputs-textarea"
+                            placeholder="URL,ファイル名&#10;https://example.com/first,first.png&#10;https://example.com/second"
+                            spellcheck="false" aria-describedby="batch-csv-help"></textarea>
+                    </div>
                 </label>
-                <label for="batch-names">
-                    ファイル名（任意）
-                    <textarea id="batch-names" rows="10"
-                        placeholder="first&#10;second.png"
-                        spellcheck="false"></textarea>
+                <p id="batch-csv-help" class="batch-csv-example">1列目はURL（必須）、2列目はファイル名（任意）。引用符で囲むとカンマや改行も使えます。</p>
+                <label for="batch-csv-file">
+                    CSVファイルを選択
+                    <input type="file" id="batch-csv-file" class="batch-csv-file" accept=".csv,text/csv">
                 </label>
             </div>
             <div class="controls">

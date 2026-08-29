@@ -1,10 +1,18 @@
 import { zipSync } from './vendor/fflate.mjs';
-import { assignBatchFileNames, parseBatchInput } from './batch-utils.mjs';
+import {
+    assignBatchFileNames,
+    decodeCsvBytes,
+    parseBatchCsv,
+    parseBatchInput
+} from './batch-utils.mjs';
 
 document.addEventListener('DOMContentLoaded', () => {
     let currentAngle = 315;
     let uploadedLogoUrl = null; // アップロードされた画像のデータURL
     let batchRunning = false;
+    let batchFileLoading = false;
+    let batchInputMode = 'legacy';
+    let csvReadToken = 0;
 
     const qrImage = document.getElementById('qr-image');
     const textInput = document.getElementById('qr-text');
@@ -29,14 +37,48 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     // 一括生成画面
+    const batchPanel = document.getElementById('batch-panel');
+    const batchLegacyPanel = document.getElementById('batch-legacy-panel');
+    const batchCsvPanel = document.getElementById('batch-csv-panel');
+    const batchModeInputs = Array.from(document.querySelectorAll('input[name="batch-input-mode"]'));
     const batchUrls = document.getElementById('batch-urls');
     const batchNames = document.getElementById('batch-names');
+    const batchCsv = document.getElementById('batch-csv');
+    const batchCsvFile = document.getElementById('batch-csv-file');
     const batchGenerateBtn = document.getElementById('batch-generate-btn');
     const batchStatus = document.getElementById('batch-status');
     const batchStatusText = document.getElementById('batch-status-text');
     const batchProgress = document.getElementById('batch-progress');
     const batchErrors = document.getElementById('batch-errors');
     const batchErrorList = document.getElementById('batch-error-list');
+
+    function initializeLineNumberedTextarea(textarea) {
+        const control = textarea?.closest('.line-numbered-textarea');
+        const gutter = control?.querySelector('.line-number-gutter');
+        if (!textarea || !gutter) {
+            return () => {};
+        }
+
+        function synchronizeLineNumbers() {
+            const lineCount = Math.max(1, textarea.value.split(/\r\n|\r|\n/).length);
+            gutter.textContent = Array.from(
+                { length: lineCount },
+                (_, index) => String(index + 1)
+            ).join('\n');
+            gutter.scrollTop = textarea.scrollTop;
+        }
+
+        textarea.addEventListener('input', synchronizeLineNumbers);
+        textarea.addEventListener('scroll', () => {
+            gutter.scrollTop = textarea.scrollTop;
+        });
+        synchronizeLineNumbers();
+        return synchronizeLineNumbers;
+    }
+
+    const synchronizeBatchUrlsLineNumbers = initializeLineNumberedTextarea(batchUrls);
+    const synchronizeBatchNamesLineNumbers = initializeLineNumberedTextarea(batchNames);
+    const synchronizeBatchCsvLineNumbers = initializeLineNumberedTextarea(batchCsv);
 
     // --- ページ内タブ（ARIA tab pattern） ---
     function selectTab(index, moveFocus = false) {
@@ -75,6 +117,28 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // --- 一括入力モード ---
+    function setBatchInputMode(mode) {
+        if (batchRunning || batchFileLoading) return;
+
+        batchInputMode = mode === 'csv' ? 'csv' : 'legacy';
+        const csvSelected = batchInputMode === 'csv';
+        batchModeInputs.forEach((input) => {
+            input.checked = input.value === batchInputMode;
+        });
+        batchLegacyPanel.hidden = csvSelected;
+        batchCsvPanel.hidden = !csvSelected;
+        batchLegacyPanel.setAttribute('aria-hidden', String(csvSelected));
+        batchCsvPanel.setAttribute('aria-hidden', String(!csvSelected));
+        showBatchErrors([]);
+        updateBatchControls();
+    }
+
+    batchModeInputs.forEach((input) => {
+        input.addEventListener('change', () => setBatchInputMode(input.value));
+    });
+    setBatchInputMode('legacy');
 
     // --- ロゴなしチェックの連動処理 ---
     noLogoCheck.addEventListener('change', () => {
@@ -219,6 +283,43 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 一括生成 ---
+    batchCsvFile.addEventListener('change', (event) => {
+        const file = event.target.files?.[0];
+        if (!file || batchRunning) return;
+        void loadBatchCsvFile(file);
+    });
+
+    async function loadBatchCsvFile(file) {
+        const requestToken = ++csvReadToken;
+        batchFileLoading = true;
+        showBatchErrors([]);
+        setBatchStatus('CSVファイルを読み込み中…', 0, 0);
+        updateBatchControls();
+
+        try {
+            const bytes = await file.arrayBuffer();
+            const decoded = decodeCsvBytes(bytes);
+            if (requestToken !== csvReadToken) return;
+
+            batchCsv.value = decoded;
+            synchronizeBatchCsvLineNumbers();
+            setBatchStatus('CSVファイルを読み込みました。内容を確認して生成してください。', 0, 0);
+        } catch (error) {
+            if (requestToken !== csvReadToken) return;
+
+            const reason = error instanceof Error
+                ? error.message
+                : 'CSVファイルの読み込みに失敗しました。';
+            showBatchErrors([{ line: null, reason }]);
+            setBatchStatus('CSVファイルを読み込めません。', 0, 0, true);
+        } finally {
+            if (requestToken === csvReadToken) {
+                batchFileLoading = false;
+                updateBatchControls();
+            }
+        }
+    }
+
     batchGenerateBtn.addEventListener('click', () => {
         void generateBatchZip();
     });
@@ -226,9 +327,11 @@ document.addEventListener('DOMContentLoaded', () => {
     async function generateBatchZip() {
         // Disabled controls cover ordinary clicks; this guard also prevents
         // programmatic/keyboard duplicate submissions while requests run.
-        if (batchRunning) return;
+        if (batchRunning || batchFileLoading) return;
 
-        const parsed = parseBatchInput(batchUrls.value, batchNames.value);
+        const parsed = batchInputMode === 'csv'
+            ? parseBatchCsv(batchCsv.value)
+            : parseBatchInput(batchUrls.value, batchNames.value);
         if (!parsed.items.length && !parsed.errors.length) {
             showBatchErrors([{ line: null, reason: '生成するURLを1件以上入力してください。' }]);
             setBatchStatus('入力を確認してください。', 0, 0, true);
@@ -348,11 +451,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setBatchBusy(busy) {
         batchRunning = busy;
-        batchGenerateBtn.disabled = busy;
-        batchUrls.disabled = busy;
-        batchNames.disabled = busy;
-        batchGenerateBtn.setAttribute('aria-busy', String(busy));
-        batchGenerateBtn.textContent = busy ? '生成中…' : '一括生成してZIPを保存';
+        updateBatchControls();
+        batchGenerateBtn.textContent = busy
+            ? '生成中…'
+            : batchFileLoading
+                ? 'CSV読込中…'
+                : '一括生成してZIPを保存';
+    }
+
+    function updateBatchControls() {
+        const unavailable = batchRunning || batchFileLoading;
+        const legacyInactive = unavailable || batchInputMode !== 'legacy';
+        const csvInactive = unavailable || batchInputMode !== 'csv';
+
+        batchModeInputs.forEach((input) => {
+            input.disabled = unavailable;
+        });
+        batchGenerateBtn.disabled = unavailable;
+        batchUrls.disabled = legacyInactive;
+        batchNames.disabled = legacyInactive;
+        batchCsv.disabled = csvInactive;
+        batchCsvFile.disabled = csvInactive;
+        batchPanel.setAttribute('aria-busy', String(unavailable));
+        batchGenerateBtn.setAttribute('aria-busy', String(unavailable));
+        batchCsvFile.setAttribute('aria-busy', String(batchFileLoading));
+        batchGenerateBtn.textContent = batchRunning
+            ? '生成中…'
+            : batchFileLoading
+                ? 'CSV読込中…'
+                : '一括生成してZIPを保存';
     }
 
     function setBatchStatus(message, total, completed, isError = false) {

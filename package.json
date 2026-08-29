@@ -19,6 +19,7 @@
     "pack": "npm run prepare && electron-builder",
     "pack:dry-run": "npm run prepare && electron-builder --dir --config.publish=never",
     "verify:pack": "node scripts/verify-pack.js",
+    "verify:upstreams": "node scripts/verify-upstreams.js",
     "sync-upstreams": "node scripts/sync-upstreams.js"
   },
   "dependencies": {
