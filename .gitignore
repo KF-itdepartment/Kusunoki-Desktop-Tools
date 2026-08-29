@@ -2,5 +2,6 @@ node_modules/
 dist/
 release/
 renderer/vendor/pdf*.mjs
+.electron-smoke-user-data/
 *.log
 .DS_Store

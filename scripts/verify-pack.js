@@ -16,6 +16,7 @@ const required = [
   'renderer/generated/upstream/qr/vendor/fflate.mjs',
   'renderer/generated/upstream/pdf/script.js',
   'renderer/generated/upstream/pdf/pdf-frame-bridge.js',
+  'renderer/generated/upstream/pdf/pdf-data-url.js',
   'renderer/vendor/pdf-lib.min.js',
   'renderer/vendor/pdf.worker.min.js'
 ];

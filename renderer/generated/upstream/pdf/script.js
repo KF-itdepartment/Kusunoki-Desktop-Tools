@@ -727,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
         image.src = src;
     });
 
-    const dataUrlToArrayBuffer = async (dataUrl) => fetch(dataUrl).then((response) => response.arrayBuffer());
+    const dataUrlToArrayBuffer = (dataUrl) => window.KusunokiPdfDataUrlToArrayBuffer(dataUrl);
 
     const getCenteredDrawPosition = (centerX, centerY, width, height, angleDegrees) => {
         const radians = (angleDegrees * Math.PI) / 180;

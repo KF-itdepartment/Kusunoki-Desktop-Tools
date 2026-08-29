@@ -31,3 +31,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Electron hidden-window smoke
+        if: runner.os != 'Linux'
+        run: npm run electron:smoke
+      - name: Electron hidden-window smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run electron:smoke

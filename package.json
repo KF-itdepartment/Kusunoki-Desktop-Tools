@@ -13,6 +13,7 @@
     "stage:vendors": "node scripts/stage-vendors.js",
     "dev": "electron .",
     "start": "electron .",
+    "electron:smoke": "node scripts/run-electron-smoke.js",
     "test": "node --test --test-isolation=none test/*.test.js",
     "build": "npm run prepare && electron-builder --dir",
     "pack": "npm run prepare && electron-builder",

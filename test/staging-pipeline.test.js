@@ -28,6 +28,8 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   const batchClassic = fs.readFileSync(batchClassicPath, 'utf8');
   const pdfFrameBridgePath = path.join(upstreamRoot, 'pdf', 'pdf-frame-bridge.js');
   const pdfFrameBridge = fs.readFileSync(pdfFrameBridgePath, 'utf8');
+  const pdfDataUrlPath = path.join(upstreamRoot, 'pdf', 'pdf-data-url.js');
+  const pdfDataUrl = fs.readFileSync(pdfDataUrlPath, 'utf8');
   const pdfHtml = fs.readFileSync(path.join(upstreamRoot, 'pdf', 'index.html'), 'utf8');
   const pdfScript = fs.readFileSync(path.join(upstreamRoot, 'pdf', 'script.js'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
@@ -40,15 +42,20 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png')));
   assert.equal(manifest.integration.qrBatch.file, 'renderer/generated/upstream/qr/batch-utils.js');
   assert.equal(manifest.integration.pdfFrameBridge.file, 'renderer/generated/upstream/pdf/pdf-frame-bridge.js');
+  assert.equal(manifest.integration.pdfDataUrl.file, 'renderer/generated/upstream/pdf/pdf-data-url.js');
   assert.equal(manifest.integration.qrBatch.source, 'vendor/qr-generator/public/batch-utils.mjs');
   assert.equal(manifest.upstream.qr['batch-utils.js'].source, 'vendor/qr-generator/public/batch-utils.mjs');
   assert.equal(manifest.integration.qrBatch.sha256, sha256(batchClassicPath));
   assert.equal(manifest.integration.pdfFrameBridge.sha256, sha256(pdfFrameBridgePath));
+  assert.equal(manifest.integration.pdfDataUrl.sha256, sha256(pdfDataUrlPath));
   assert.match(batchClassic, /Generated from vendor\/qr-generator\/public\/batch-utils\.mjs/);
   assert.match(pdfHtml, /pdf-frame-bridge\.js/);
   assert.match(pdfHtml, /Content-Security-Policy/);
   assert.match(pdfFrameBridge, /kusunoki:pdf:set-watermark/);
   assert.match(pdfFrameBridge, /event\.source !== window\.parent/);
+  assert.match(pdfDataUrl, /KusunokiPdfDataUrlToArrayBuffer/);
+  assert.doesNotMatch(pdfScript, /fetch\s*\(/iu);
+  assert.match(pdfHtml, /connect-src 'none'/);
   assert.ok(pdfHtml.indexOf('pdf-frame-bridge.js') < pdfHtml.lastIndexOf('script.js'));
   assert.match(pdfHtml, /\.\.\/\.\.\/\.\.\/vendor\/pdf-lib\.min\.js/);
   assert.match(pdfHtml, /\.\.\/\.\.\/\.\.\/vendor\/pdf\.min\.js/);
@@ -61,7 +68,7 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.doesNotMatch(html, /src="\.\/batch-utils\.js"/);
   assert.match(html, /pdf-editor-frame/);
   assert.match(html, /generated\/upstream\/pdf\/index\.html/);
-  assert.match(html, /sandbox="allow-scripts allow-downloads/);
+  assert.doesNotMatch(html, /<iframe[^>]+id="pdf-editor-frame"[^>]+sandbox/iu);
   assert.match(html, /legacy-pdf-fallback" hidden/);
   assert.match(app, /generated\.qr\.batch\.parseBatchInput/);
   assert.doesNotMatch(app, /window\.BatchUtils/);
@@ -116,6 +123,7 @@ test('generated upstream files remain byte-for-byte stable across staging runs',
     path.join(generatedRoot, 'upstream', 'pdf', 'script.js'),
     path.join(generatedRoot, 'upstream', 'pdf', 'index.html'),
     path.join(generatedRoot, 'upstream', 'pdf', 'pdf-frame-bridge.js'),
+    path.join(generatedRoot, 'upstream', 'pdf', 'pdf-data-url.js'),
     path.join(generatedRoot, 'upstream-adapter.js'),
     path.join(root, 'renderer', 'vendor', 'MANIFEST.json')
   ];

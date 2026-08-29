@@ -8,9 +8,10 @@ Kusunoki Desktop Tools v1.0.0 は、QRコード生成とPDF編集を一つのデ
 npm install
 npm test
 npm run dev
+npm run electron:smoke  # hidden-window smoke: generated PDF iframe and local libraries
 ```
 
-`npm install` の `prepare` が `vendor/qr-generator/public` と `vendor/pdf-editor` の上流画面・スクリプト・ロゴを `renderer/generated/upstream/` へ展開します。QRの `batch-utils.mjs` は同じソースから `batch-utils.js` へ機械的にclassic/global変換され、シェルが実際にロードします。PDFの `index.html` / `script.js` は unpkg参照を `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換し、生成された `pdf-frame-bridge.js` とともにsandbox iframeで通常表示・実行されます。QR→PDF受渡しは検証済みpostMessageから上流UIの `#wm-img-input` へFile/DataTransferを設定します。統合アダプターと上流SHA-256は `renderer/vendor/MANIFEST.json` で追跡できます。単体QRの生成は上流画面のHTTP API依存を持ち込まず、ローカル `electron/qr-service.js` adapter（同期時はQR機能テストとmanifest確認）を使用します。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
+`npm install` の `prepare` が `vendor/qr-generator/public` と `vendor/pdf-editor` の上流画面・スクリプト・ロゴを `renderer/generated/upstream/` へ展開します。QRの `batch-utils.mjs` は同じソースから `batch-utils.js` へ機械的にclassic/global変換され、シェルが実際にロードします。PDFの `index.html` / `script.js` は unpkg参照を `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換し、生成された `pdf-data-url.js`（`fetch()`を使わないdata URL変換）と `pdf-frame-bridge.js` とともに上流PDF iframeとして通常表示・実行されます。外側iframeにHTML sandbox属性は付けず、Electronの `BrowserWindow`（`sandbox: true`、`nodeIntegration: false`、厳格CSP、外部要求ブロック）をプロセス境界にします。QR→PDF受渡しは検証済みpostMessageから上流UIの `#wm-img-input` へFile/DataTransferを設定します。統合アダプターと上流SHA-256は `renderer/vendor/MANIFEST.json` で追跡できます。単体QRの生成は上流画面のHTTP API依存を持ち込まず、ローカル `electron/qr-service.js` adapter（同期時はQR機能テストとmanifest確認）を使用します。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
 
 ## ビルド
 

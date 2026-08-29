@@ -171,6 +171,7 @@
     if (message.type === generated.pdfFrame.types.ready && message.payload.source !== 'generated/upstream/pdf') return;
     if (message.type === generated.pdfFrame.types.ready) {
       state.pdfFrameReady = true;
+      document.documentElement.dataset.pdfFrameReady = 'true';
       setStatus('pdf-frame-status', '上流PDFエディターを利用できます。');
       sendPendingWatermark();
     } else if (message.type === generated.pdfFrame.types.applied) {
@@ -186,6 +187,7 @@
     if (!frame) return;
     frame.addEventListener('load', () => {
       state.pdfFrameReady = false;
+      document.documentElement.dataset.pdfFrameReady = 'false';
       setStatus('pdf-frame-status', '上流PDFエディターを読み込んでいます…');
       if (frame.contentWindow) postPdfFrameMessage(generated.pdfFrame.createPing());
     });
