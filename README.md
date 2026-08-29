@@ -8,10 +8,12 @@ Kusunoki Desktop Tools は、QRコード生成とPDF編集を一つのデスク�
 
 リンク先のGitHub Releasesで **Release Assets** を開き、お使いのOSに合うファイルを選択してください。
 
-- Windows: `Kusunoki.Desktop.Tools.Setup.*.exe`
-- macOS Apple Silicon: `*-arm64.dmg`
-- macOS Intel: `*-x64.dmg`
-- Linux: `*.AppImage`
+- Windowsを使っている方は、`Kusunoki.Desktop.Tools.Setup.*.exe` と書かれたファイルをダウンロードしてください。
+- Apple Silicon（M1/M2/M3/M4等）のMacは、`*-arm64.dmg` をダウンロードしてください。
+- Intel CPUのMacは、`*-x64.dmg` をダウンロードしてください。
+- Linuxは、`*.AppImage` をダウンロードしてください。
+
+ファイル名の `*` はバージョン番号などを表しています。最新版では数字の部分が変わります。
 
 Windowsでは `win-unpacked` 内のexeではなく、`Kusunoki.Desktop.Tools.Setup.*.exe` を実行してインストールしてください。インストール後はスタートメニューまたはインストール版から起動します。
 
