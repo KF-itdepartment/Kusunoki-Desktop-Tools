@@ -27,6 +27,10 @@ function requireFile(file) {
 function copy(source, target) {
   requireFile(source);
   fs.mkdirSync(path.dirname(target), { recursive: true });
+  // Avoid touching already identical tracked assets. This keeps staging
+  // idempotent even when a security scanner has the generated browser bundle
+  // open, and still replaces the target whenever the source hash changes.
+  if (fs.existsSync(target) && fs.statSync(target).isFile() && hash(source) === hash(target)) return target;
   fs.copyFileSync(source, target);
   return target;
 }
@@ -37,7 +41,12 @@ function hash(file) {
 
 function writeUtf8(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+    const current = fs.readFileSync(file, 'utf8');
+    if (current === value) return file;
+  }
   fs.writeFileSync(file, value, 'utf8');
+  return file;
 }
 
 function findFirst(rootDirectory, candidates) {
@@ -47,6 +56,89 @@ function findFirst(rootDirectory, candidates) {
   }
   return null;
 }
+
+function isTruthy(value) {
+  return /^(?:1|true|yes|on)$/iu.test(String(value || ''));
+}
+
+function hasCompleteSource(directory, files) {
+  return files.every((file) => {
+    const candidate = path.join(directory, file);
+    return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+  });
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function readFallbackManifest() {
+  const manifestPath = path.join(vendor, 'MANIFEST.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error('upstream submodules are unavailable and renderer/vendor/MANIFEST.json is missing; restore committed generated files.');
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`committed upstream manifest is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!manifest || manifest.schema !== 2 || !manifest.upstream?.qr || !manifest.upstream?.pdf || !manifest.adapter?.sha256) {
+    throw new Error('committed upstream manifest is incomplete; cannot safely use generated fallback.');
+  }
+  return manifest;
+}
+
+function assertFallbackHash(relativeFile, expectedHash, label) {
+  if (!expectedHash || !/^[a-f0-9]{64}$/iu.test(String(expectedHash))) {
+    throw new Error(`committed upstream manifest has no valid hash for ${label}.`);
+  }
+  const file = path.join(root, relativeFile);
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    throw new Error(`committed generated upstream file is missing: ${relativeFile}`);
+  }
+  const actual = hash(file);
+  if (actual.toLowerCase() !== String(expectedHash).toLowerCase()) {
+    throw new Error(`committed generated upstream file hash mismatch: ${relativeFile}`);
+  }
+}
+
+function validateFallbackArtifacts(manifest, needQr, needPdf) {
+  const qrFiles = ['index.html', 'script.js', 'batch-utils.mjs', 'logo.png', 'vendor/fflate.mjs', 'vendor/fflate.LICENSE.txt', 'batch-utils.js'];
+  const pdfFiles = ['index.html', 'script.js', 'SPECIFICATION.md', 'pdf-frame-bridge.js', 'pdf-data-url.js'];
+  if (needQr) {
+    for (const name of qrFiles) {
+      const entry = manifest.upstream.qr[name];
+      const expected = name === 'batch-utils.js' ? entry?.generatedSha256 : entry?.sha256;
+      assertFallbackHash(`renderer/generated/upstream/qr/${name}`, expected, `QR ${name}`);
+    }
+  }
+  if (needPdf) {
+    for (const name of pdfFiles) {
+      const entry = manifest.upstream.pdf[name];
+      const expected = (name === 'index.html' || name === 'script.js') ? entry?.generatedSha256 : entry?.sha256;
+      assertFallbackHash(`renderer/generated/upstream/pdf/${name}`, expected, `PDF ${name}`);
+    }
+  }
+  if (needQr || needPdf) {
+    assertFallbackHash('renderer/generated/upstream-adapter.js', manifest.adapter.sha256, 'generated upstream adapter');
+  }
+}
+
+const qrFiles = [
+  'index.html',
+  'script.js',
+  'batch-utils.mjs',
+  'logo.png',
+  'vendor/fflate.mjs',
+  'vendor/fflate.LICENSE.txt'
+];
+const pdfFiles = ['index.html', 'script.js', 'SPECIFICATION.md'];
+const forceFallback = isTruthy(process.env.KUSUNOKI_STAGE_FALLBACK);
+const qrSourceReady = !forceFallback && hasCompleteSource(qrSource, qrFiles);
+const pdfSourceReady = !forceFallback && hasCompleteSource(pdfSource, pdfFiles);
+const fallbackManifest = (!qrSourceReady || !pdfSourceReady) ? readFallbackManifest() : null;
+if (fallbackManifest) validateFallbackArtifacts(fallbackManifest, !qrSourceReady, !pdfSourceReady);
 
 // Stage browser dependencies from npm. The generated upstream PDF page is
 // transformed below to use these exact local filenames.
@@ -63,56 +155,68 @@ copy(worker, path.join(vendor, 'pdf.worker.min.js'));
 copy(pdfLib, path.join(vendor, 'pdf-lib.min.js'));
 copy(jszip, path.join(vendor, 'jszip.min.js'));
 
-// Stage the complete QR source unit. The shell uses the generated source
-// hash and batch adapter below, so a submodule update cannot be a no-op.
-const qrFiles = [
-  'index.html',
-  'script.js',
-  'batch-utils.mjs',
-  'logo.png',
-  'vendor/fflate.mjs',
-  'vendor/fflate.LICENSE.txt'
-];
-const qrManifest = {};
-for (const name of qrFiles) {
-  const source = path.join(qrSource, name);
-  copy(source, path.join(generated, 'qr', name));
-  qrManifest[name] = {
-    source: path.relative(root, source).replaceAll(path.sep, '/'),
-    sha256: hash(source)
-  };
+// Stage the complete QR source unit when the read-only submodule is present.
+// A CI checkout intentionally omits private submodules; in that case the
+// committed generated copy is validated above and kept byte-for-byte intact.
+let qrManifest;
+if (qrSourceReady) {
+  qrManifest = {};
+  for (const name of qrFiles) {
+    const source = path.join(qrSource, name);
+    copy(source, path.join(generated, 'qr', name));
+    qrManifest[name] = {
+      source: path.relative(root, source).replaceAll(path.sep, '/'),
+      sha256: hash(source)
+    };
+  }
+} else {
+  qrManifest = clone(fallbackManifest.upstream.qr);
 }
 
 // Convert the upstream ESM batch helper into the classic global module that
 // the shell can load before app.js. This is deliberately generated from the
 // staged source (rather than maintaining a second hand-written copy), so a
 // submodule update changes the functions used by the packaged renderer.
-const batchOriginalPath = path.join(qrSource, 'batch-utils.mjs');
-const batchSourcePath = path.join(generated, 'qr', 'batch-utils.mjs');
-const batchSource = fs.readFileSync(batchSourcePath, 'utf8');
-const batchBody = batchSource.replace(/\bexport\s+(?=(?:const|function)\b)/gu, '');
-const batchClassic = `'use strict';\n\n// Generated from vendor/qr-generator/public/batch-utils.mjs. Do not edit by hand.\n(function exposeGeneratedBatch(global) {\n${batchBody}\n  global.BatchUtils = Object.freeze({\n    MAX_BATCH_ITEMS,\n    MAX_FILENAME_LENGTH,\n    splitInputLines,\n    validateHttpUrl,\n    isValidHttpUrl,\n    parseBatchInput,\n    sanitizePngFileName,\n    sanitisePngFileName,\n    sanitizeFileName,\n    createBatchFileNames,\n    makeUniqueFileNames,\n    assignBatchFileNames\n  });\n})(window);\n`;
 const batchClassicPath = path.join(generated, 'qr', 'batch-utils.js');
-writeUtf8(batchClassicPath, batchClassic);
-qrManifest['batch-utils.js'] = {
-  source: path.relative(root, batchOriginalPath).replaceAll(path.sep, '/'),
-  sha256: hash(batchOriginalPath),
-  generatedSha256: hash(batchClassicPath)
-};
+let batchClassic;
+if (qrSourceReady) {
+  const batchOriginalPath = path.join(qrSource, 'batch-utils.mjs');
+  const batchSourcePath = path.join(generated, 'qr', 'batch-utils.mjs');
+  const batchSource = fs.readFileSync(batchSourcePath, 'utf8');
+  const batchBody = batchSource.replace(/\bexport\s+(?=(?:const|function)\b)/gu, '');
+  batchClassic = `'use strict';\n\n// Generated from vendor/qr-generator/public/batch-utils.mjs. Do not edit by hand.\n(function exposeGeneratedBatch(global) {\n${batchBody}\n  global.BatchUtils = Object.freeze({\n    MAX_BATCH_ITEMS,\n    MAX_FILENAME_LENGTH,\n    splitInputLines,\n    validateHttpUrl,\n    isValidHttpUrl,\n    parseBatchInput,\n    sanitizePngFileName,\n    sanitisePngFileName,\n    sanitizeFileName,\n    createBatchFileNames,\n    makeUniqueFileNames,\n    assignBatchFileNames\n  });\n})(window);\n`;
+  writeUtf8(batchClassicPath, batchClassic);
+  qrManifest['batch-utils.js'] = {
+    source: path.relative(root, batchOriginalPath).replaceAll(path.sep, '/'),
+    sha256: hash(batchOriginalPath),
+    generatedSha256: hash(batchClassicPath)
+  };
+} else {
+  batchClassic = fs.readFileSync(batchClassicPath, 'utf8');
+}
 
 // Copy the upstream PDF page and rewrite all three CDN script references.
 // Keep source and generated hashes so CI can prove that this exact source is
 // what the packaged bridge represents.
-const pdfHtmlSource = requireFile(path.join(pdfSource, 'index.html'));
-const pdfScriptSource = requireFile(path.join(pdfSource, 'script.js'));
-const pdfSpecSource = requireFile(path.join(pdfSource, 'SPECIFICATION.md'));
-const pdfHtml = fs.readFileSync(pdfHtmlSource, 'utf8')
+const pdfHtmlSource = pdfSourceReady ? requireFile(path.join(pdfSource, 'index.html')) : path.join(generated, 'pdf', 'index.html');
+const pdfScriptSource = pdfSourceReady ? requireFile(path.join(pdfSource, 'script.js')) : path.join(generated, 'pdf', 'script.js');
+const pdfSpecSource = pdfSourceReady ? requireFile(path.join(pdfSource, 'SPECIFICATION.md')) : path.join(generated, 'pdf', 'SPECIFICATION.md');
+let pdfHtml = fs.readFileSync(pdfHtmlSource, 'utf8')
   .replaceAll('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js', '../../../vendor/pdf-lib.min.js')
   .replaceAll('https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js', '../../../vendor/pdf.min.js')
   .replaceAll('https://unpkg.com/jszip@3.10.1/dist/jszip.min.js', '../../../vendor/jszip.min.js');
+if (!pdfSourceReady) {
+  // The committed fallback is already transformed. Strip only the generated
+  // integration tags before re-injecting them below, keeping stage output
+  // byte-for-byte deterministic without duplicating scripts.
+  pdfHtml = pdfHtml
+    .replace(/<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'">\s*/iu, '')
+    .replace(/<script src="pdf-data-url\.js"><\/script>\s*/iu, '')
+    .replace(/<script src="pdf-frame-bridge\.js"><\/script>\s*/iu, '');
+}
 const pdfDataUrlHelper = `'use strict';\n\n// Generated by scripts/stage-vendors.js. Converts data URLs without fetch/network access.\n(() => {\n  const dataUrlToArrayBuffer = (dataUrl) => {\n    const value = String(dataUrl || '');\n    const comma = value.indexOf(',');\n    if (comma <= 4 || !/^data:/iu.test(value.slice(0, comma))) throw new TypeError('data URLが不正です。');\n    const metadata = value.slice(5, comma);\n    const payload = value.slice(comma + 1);\n    if (/;base64(?:;|$)/iu.test(metadata)) {\n      const binary = atob(decodeURIComponent(payload).replace(/\\s+/gu, ''));\n      const bytes = new Uint8Array(binary.length);\n      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);\n      return bytes.buffer;\n    }\n    return new TextEncoder().encode(decodeURIComponent(payload)).buffer;\n  };\n  window.KusunokiPdfDataUrlToArrayBuffer = dataUrlToArrayBuffer;\n})();\n`;
 const pdfDataUrlHelperPath = path.join(generated, 'pdf', 'pdf-data-url.js');
-writeUtf8(pdfDataUrlHelperPath, pdfDataUrlHelper);
+if (pdfSourceReady) writeUtf8(pdfDataUrlHelperPath, pdfDataUrlHelper);
 const pdfScript = fs.readFileSync(pdfScriptSource, 'utf8')
   .replaceAll('https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js', '../../../vendor/pdf.worker.min.js')
   .replace('const dataUrlToArrayBuffer = async (dataUrl) => fetch(dataUrl).then((response) => response.arrayBuffer());', 'const dataUrlToArrayBuffer = (dataUrl) => window.KusunokiPdfDataUrlToArrayBuffer(dataUrl);');
@@ -120,17 +224,19 @@ if (/fetch\s*\(/iu.test(pdfScript)) throw new Error('generated upstream PDF scri
 const pdfFrameBridge = `'use strict';\n\n// Generated by scripts/stage-vendors.js. Runs inside the sandboxed PDF iframe.\n(() => {\n  const VERSION = 1;\n  const MAX_BYTES = 20 * 1024 * 1024;\n  const SET_WATERMARK = 'kusunoki:pdf:set-watermark';\n  const PING = 'kusunoki:pdf:ping';\n  const READY = 'kusunoki:pdf:ready';\n  const APPLIED = 'kusunoki:pdf:watermark-applied';\n  const ERROR = 'kusunoki:pdf:error';\n  const MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);\n\n  const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);\n  const bytesFrom = (value) => {\n    if (value instanceof ArrayBuffer) return value.slice(0);\n    if (ArrayBuffer.isView(value)) return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);\n    return null;\n  };\n  const originAllowed = (event) => {\n    if (!event || event.source !== window.parent) return false;\n    const origin = String(event.origin || '');\n    const ownOrigin = String(window.location?.origin || 'null');\n    return origin === 'null' || origin === ownOrigin;\n  };\n  const safeFileName = (value) => {\n    const fileName = String(value || 'qr-watermark.png');\n    if (!fileName || fileName.length > 160 || fileName === '.' || fileName === '..' || /[\\u0000-\\u001f<>:\"/\\\\|?*]/u.test(fileName)) return null;\n    return fileName;\n  };\n  const post = (type, payload) => {\n    window.parent.postMessage({ version: VERSION, type, payload }, '*');\n  };\n  const validate = (event) => {\n    if (!originAllowed(event)) return null;\n    const message = event.data;\n    if (!isRecord(message) || message.version !== VERSION || typeof message.type !== 'string') return null;\n    if (message.type === PING) return { type: PING, payload: {} };\n    if (message.type !== SET_WATERMARK || !isRecord(message.payload)) return null;\n    const raw = bytesFrom(message.payload.data);\n    const fileName = safeFileName(message.payload.fileName);\n    const mimeType = String(message.payload.mimeType || 'image/png');\n    const text = String(message.payload.text || '');\n    if (!raw || raw.byteLength < 1 || raw.byteLength > MAX_BYTES || !fileName || !MIME_TYPES.has(mimeType) || text.length > 4096) return null;\n    return { type: SET_WATERMARK, payload: { data: raw, fileName, mimeType, text } };\n  };\n  const applyWatermark = (payload) => {\n    const input = document.getElementById('wm-img-input');\n    const mode = document.getElementById('mode-watermark');\n    if (!input || !mode || typeof File !== 'function' || typeof DataTransfer !== 'function') throw new Error('PDFウォーターマーク入力欄を利用できません。');\n    const file = new File([payload.data], payload.fileName, { type: payload.mimeType });\n    const transfer = new DataTransfer();\n    transfer.items.add(file);\n    input.files = transfer.files;\n    if (!mode.checked) {\n      mode.checked = true;\n      mode.dispatchEvent(new Event('change', { bubbles: true }));\n    }\n    input.dispatchEvent(new Event('input', { bubbles: true }));\n    input.dispatchEvent(new Event('change', { bubbles: true }));\n    post(APPLIED, { fileName: payload.fileName, mimeType: payload.mimeType, byteLength: payload.data.byteLength });\n  };\n  window.addEventListener('message', (event) => {\n    if (!originAllowed(event)) return;\n    const checked = validate(event);\n    if (!checked) {\n      if (event.data && event.data.type === SET_WATERMARK) post(ERROR, { code: 'invalid-message', message: 'PDF受渡しメッセージが不正です。' });\n      return;\n    }\n    if (checked.type === PING) {\n      post(READY, { source: 'generated/upstream/pdf', version: VERSION, capabilities: ['watermark-file'] });\n      return;\n    }\n    try {\n      applyWatermark(checked.payload);\n    } catch (error) {\n      post(ERROR, { code: 'apply-failed', message: error instanceof Error ? error.message : String(error) });\n    }\n  });\n  window.addEventListener('DOMContentLoaded', () => {\n    post(READY, { source: 'generated/upstream/pdf', version: VERSION, capabilities: ['watermark-file'] });\n  });\n})();\n`;
 const pdfFrameBridgePath = path.join(generated, 'pdf', 'pdf-frame-bridge.js');
 const generatedPdfFrameBridge = pdfFrameBridge.replace('sandboxed PDF iframe', 'PDF iframe');
-writeUtf8(pdfFrameBridgePath, generatedPdfFrameBridge);
+if (pdfSourceReady) writeUtf8(pdfFrameBridgePath, generatedPdfFrameBridge);
 const injectedCsp = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: blob:; font-src \'self\' data:; connect-src \'none\'; worker-src \'self\' blob:; frame-src \'self\' blob:; object-src \'none\'; base-uri \'none\'; form-action \'self\'">';
 const generatedPdfHtml = pdfHtml
   .replace(/<head>/iu, `<head>\n    ${injectedCsp}`)
   .replace(/<script src="script\.js"><\/script>/iu, '<script src="pdf-data-url.js"></script>\n<script src="pdf-frame-bridge.js"></script>\n<script src="script.js"></script>');
 if (!generatedPdfHtml.includes('pdf-data-url.js') || !generatedPdfHtml.includes('pdf-frame-bridge.js')) throw new Error('upstream PDF bridge injection failed.');
-writeUtf8(path.join(generated, 'pdf', 'index.html'), generatedPdfHtml);
-writeUtf8(path.join(generated, 'pdf', 'script.js'), pdfScript);
-copy(pdfSpecSource, path.join(generated, 'pdf', 'SPECIFICATION.md'));
+if (pdfSourceReady) {
+  writeUtf8(path.join(generated, 'pdf', 'index.html'), generatedPdfHtml);
+  writeUtf8(path.join(generated, 'pdf', 'script.js'), pdfScript);
+  copy(pdfSpecSource, path.join(generated, 'pdf', 'SPECIFICATION.md'));
+}
 
-const pdfManifest = {
+const pdfManifest = pdfSourceReady ? {
   'index.html': {
     source: path.relative(root, pdfHtmlSource).replaceAll(path.sep, '/'),
     sha256: hash(pdfHtmlSource),
@@ -145,7 +251,7 @@ const pdfManifest = {
     source: path.relative(root, pdfSpecSource).replaceAll(path.sep, '/'),
     sha256: hash(pdfSpecSource)
   }
-};
+} : clone(fallbackManifest.upstream.pdf);
 pdfManifest['pdf-frame-bridge.js'] = {
   source: 'scripts/stage-vendors.js',
   sha256: hash(pdfFrameBridgePath)
@@ -207,4 +313,4 @@ const manifest = {
 };
 writeUtf8(path.join(vendor, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log(`Staged ${Object.keys(qrManifest).length} QR and ${Object.keys(pdfManifest).length} PDF upstream files plus local browser assets.`);
+console.log(`Staged ${Object.keys(qrManifest).length} QR and ${Object.keys(pdfManifest).length} PDF upstream files plus local browser assets (QR: ${qrSourceReady ? 'submodule' : 'committed fallback'}, PDF: ${pdfSourceReady ? 'submodule' : 'committed fallback'}).`);

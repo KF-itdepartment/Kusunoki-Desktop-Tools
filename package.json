@@ -41,7 +41,6 @@
       "electron/**/*",
       "renderer/**/*",
       "scripts/**/*",
-      "vendor/**/*",
       "package.json",
       "node_modules/electron-updater/**/*",
       "node_modules/@pdf-lib/fontkit/**/*",

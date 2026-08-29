@@ -19,6 +19,17 @@ function runStage() {
   require(script);
 }
 
+function runFallbackStage() {
+  const previous = process.env.KUSUNOKI_STAGE_FALLBACK;
+  process.env.KUSUNOKI_STAGE_FALLBACK = '1';
+  try {
+    runStage();
+  } finally {
+    if (previous === undefined) delete process.env.KUSUNOKI_STAGE_FALLBACK;
+    else process.env.KUSUNOKI_STAGE_FALLBACK = previous;
+  }
+}
+
 test('vendor stage is reproducible and generated output is the renderer input', () => {
   runStage();
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'renderer', 'vendor', 'MANIFEST.json'), 'utf8'));
@@ -34,6 +45,7 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   const pdfScript = fs.readFileSync(path.join(upstreamRoot, 'pdf', 'script.js'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
   assert.equal(manifest.schema, 2);
   assert.equal(manifest.upstream.qr['script.js'].source, 'vendor/qr-generator/public/script.js');
@@ -77,6 +89,8 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.match(app, /generated\.pdfFrame\.createWatermarkMessage/);
   assert.match(app, /generated\.pdfFrame\.validateMessage/);
   assert.match(app, /setupPdfFrame/);
+  assert.ok(packageJson.build.files.includes('renderer/**/*'));
+  assert.doesNotMatch(packageJson.build.files.join('\n'), /^vendor\/\*\*\//mu);
 
   // Execute the generated classic transform, not a hand-maintained test
   // double. These are the functions used by app.js at runtime.
@@ -110,6 +124,20 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.deepEqual(Array.from(new Uint8Array(frameMessage.payload.data)), [1, 2, 3]);
   assert.equal(bridge.pdfFrame.validateMessage({ source: frameWindow, origin: 'null', data: { version: 1, type: 'kusunoki:pdf:ready', payload: { source: 'generated/upstream/pdf', capabilities: ['watermark-file'] } } }, frameWindow).type, 'kusunoki:pdf:ready');
   assert.equal(bridge.pdfFrame.validateMessage({ source: {}, origin: 'null', data: { version: 1, type: 'kusunoki:pdf:ready', payload: {} } }, frameWindow), null);
+});
+
+test('vendor stage keeps committed generated artifacts when submodule checkout is unavailable', () => {
+  const files = [
+    path.join(generatedRoot, 'upstream', 'qr', 'logo.png'),
+    path.join(generatedRoot, 'upstream', 'qr', 'batch-utils.js'),
+    path.join(generatedRoot, 'upstream', 'pdf', 'index.html'),
+    path.join(generatedRoot, 'upstream', 'pdf', 'script.js'),
+    path.join(generatedRoot, 'upstream-adapter.js'),
+    path.join(root, 'renderer', 'vendor', 'MANIFEST.json')
+  ];
+  const before = files.map((file) => fs.readFileSync(file));
+  runFallbackStage();
+  files.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), before[index], file));
 });
 
 test('generated upstream files remain byte-for-byte stable across staging runs', () => {

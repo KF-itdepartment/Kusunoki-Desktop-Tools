@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { generateQr, parseDataUri } = require('../electron/qr-service');
 
@@ -25,11 +26,19 @@ test('QR input and logo data URLs are validated', async () => {
   assert.throws(() => parseDataUri('data:text/html;base64,AAAA'), /画像/);
 });
 
-test('default QR logo is the read-only upstream public logo', async () => {
+test('default QR logo falls back to the committed generated upstream copy', async () => {
   const root = path.join(__dirname, '..');
-  const logo = fs.readFileSync(path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png'));
-  const result = await generateQr({ text: 'default-logo-check' }, root);
-  const match = /<image href="data:image\/png;base64,([^"]+)"/iu.exec(result.svg);
-  assert.ok(match, 'default SVG should contain an embedded logo image');
-  assert.deepEqual(Buffer.from(match[1], 'base64'), logo);
+  const logo = fs.readFileSync(path.join(root, 'renderer', 'generated', 'upstream', 'qr', 'logo.png'));
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kusunoki-logo-fallback-'));
+  const generatedLogo = path.join(fixture, 'renderer', 'generated', 'upstream', 'qr', 'logo.png');
+  fs.mkdirSync(path.dirname(generatedLogo), { recursive: true });
+  fs.copyFileSync(path.join(root, 'renderer', 'generated', 'upstream', 'qr', 'logo.png'), generatedLogo);
+  try {
+    const result = await generateQr({ text: 'default-logo-check' }, fixture);
+    const match = /<image href="data:image\/png;base64,([^"]+)"/iu.exec(result.svg);
+    assert.ok(match, 'default SVG should contain an embedded logo image');
+    assert.deepEqual(Buffer.from(match[1], 'base64'), logo);
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
 });

@@ -22,14 +22,16 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Verify generated fallback without private submodules
+        env:
+          KUSUNOKI_STAGE_FALLBACK: '1'
+        run: npm run stage:vendors
       - run: npm run build
       - name: Electron hidden-window smoke
         if: runner.os != 'Linux'

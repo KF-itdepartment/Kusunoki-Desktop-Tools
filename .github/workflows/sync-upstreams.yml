@@ -16,32 +16,68 @@ jobs:
   candidate:
     runs-on: ubuntu-latest
     steps:
+      # The integration repository is public, but both upstream repositories
+      # are private. Never ask the default integration token to clone them.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
+      - name: Detect private upstream access
+        id: upstream-access
+        env:
+          UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${UPSTREAM_TOKEN}" ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+            echo 'private upstream sync enabled' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'private upstream sync disabled' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Checkout QR upstream with read-only token
+        if: steps.upstream-access.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: KF-itdepartment/QR-Generator
+          ref: main
+          path: vendor/qr-generator
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.UPSTREAM_TOKEN }}
+      - name: Checkout PDF upstream with read-only token
+        if: steps.upstream-access.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: KF-itdepartment/pdf-editor
+          ref: main
+          path: vendor/pdf-editor
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.UPSTREAM_TOKEN }}
       - uses: actions/setup-node@v4
+        if: steps.upstream-access.outputs.enabled == 'true'
         with:
           node-version: 22
           cache: npm
-      - name: Update candidate submodules
+      - name: Test and build upstream candidate
+        if: steps.upstream-access.outputs.enabled == 'true'
         run: |
           set -euo pipefail
-          git -C vendor/qr-generator fetch --quiet origin main
-          git -C vendor/qr-generator checkout --detach FETCH_HEAD
-          git -C vendor/pdf-editor fetch --quiet origin main
-          git -C vendor/pdf-editor checkout --detach FETCH_HEAD
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+          npm ci
+          npm test
+          npm run build
       - name: Commit only a passing candidate to main
+        if: steps.upstream-access.outputs.enabled == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .gitmodules vendor/qr-generator vendor/pdf-editor
+          # The gitlinks and generated integration artifacts are one tested
+          # candidate. Do not commit a submodule update without its stage.
+          git add .gitmodules vendor/qr-generator vendor/pdf-editor renderer/generated renderer/vendor/MANIFEST.json
           if git diff --cached --quiet; then
             echo 'No upstream changes.'
             exit 0

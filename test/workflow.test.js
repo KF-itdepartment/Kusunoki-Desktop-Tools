@@ -20,4 +20,25 @@ test('release workflow preserves 1.0.0 first release and gates tags behind tests
   assert.ok(publishIndex >= 0 && tagIndex > publishIndex, 'release tag must be created only in publish');
   assert.doesNotMatch(workflow.slice(0, publishIndex), /git tag|push origin [^H]/u);
   assert.doesNotMatch(workflow, /npm version patch[\s\S]{0,300}git tag[\s\S]{0,30}npm test/);
+  assert.doesNotMatch(workflow, /submodules:\s*recursive/u);
+});
+
+test('public CI and release use committed generated artifacts without private submodules', () => {
+  const ci = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  const release = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
+  assert.doesNotMatch(ci, /submodules:/u);
+  assert.doesNotMatch(release, /submodules:/u);
+  assert.match(ci, /KUSUNOKI_STAGE_FALLBACK/);
+});
+
+test('upstream sync gates private checkout on read-only UPSTREAM_TOKEN', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'sync-upstreams.yml'), 'utf8');
+  assert.match(workflow, /UPSTREAM_TOKEN/);
+  assert.match(workflow, /private upstream sync disabled/);
+  assert.match(workflow, /GITHUB_STEP_SUMMARY/);
+  assert.match(workflow, /repository: KF-itdepartment\/QR-Generator/);
+  assert.match(workflow, /repository: KF-itdepartment\/pdf-editor/);
+  assert.match(workflow, /token: \$\{\{ secrets\.UPSTREAM_TOKEN \}\}/);
+  assert.match(workflow, /git add \.gitmodules vendor\/qr-generator vendor\/pdf-editor renderer\/generated renderer\/vendor\/MANIFEST\.json/);
+  assert.doesNotMatch(workflow, /submodules:\s*recursive/u);
 });

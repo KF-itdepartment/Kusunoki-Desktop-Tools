@@ -9,11 +9,13 @@ if (!fs.existsSync(asar)) {
 }
 const entries = listPackage(asar).map((entry) => entry.replaceAll('\\', '/').replace(/^\/+/, ''));
 const required = [
-  'vendor/qr-generator/public/logo.png',
   'renderer/generated/upstream-adapter.js',
+  'renderer/generated/upstream/qr/index.html',
   'renderer/generated/upstream/qr/batch-utils.js',
+  'renderer/generated/upstream/qr/logo.png',
   'renderer/generated/upstream/qr/script.js',
   'renderer/generated/upstream/qr/vendor/fflate.mjs',
+  'renderer/generated/upstream/pdf/index.html',
   'renderer/generated/upstream/pdf/script.js',
   'renderer/generated/upstream/pdf/pdf-frame-bridge.js',
   'renderer/generated/upstream/pdf/pdf-data-url.js',
@@ -22,4 +24,6 @@ const required = [
 ];
 const missing = required.filter((entry) => !entries.includes(entry));
 if (missing.length) throw new Error(`packaged files are missing: ${missing.join(', ')}`);
+const privateSubmoduleFiles = entries.filter((entry) => /^vendor\/(?:qr-generator|pdf-editor)(?:\/|$)/u.test(entry));
+if (privateSubmoduleFiles.length) throw new Error(`private upstream submodule files must not be packaged: ${privateSubmoduleFiles.join(', ')}`);
 console.log(`Verified ${required.length} upstream/local assets in ${path.relative(root, asar)}.`);
