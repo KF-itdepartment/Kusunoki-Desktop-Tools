@@ -1,6 +1,21 @@
 # Kusunoki Desktop Tools
 
-Kusunoki Desktop Tools v1.0.0 は、QRコード生成とPDF編集を一つのデスクトップシェルにまとめたElectronアプリです。QR生成・PDF処理・素材トレイはローカルで動作します。外部通信はユーザーが更新確認を実行したとき（またはパッケージ版の起動時更新確認）だけです。レンダラーはCSPとリクエストブロックで外部API/CDNを利用できません。
+Kusunoki Desktop Tools は、QRコード生成とPDF編集を一つのデスクトップシェルにまとめたElectronアプリです。QR生成・PDF処理・素材トレイはローカルで動作します。外部通信はユーザーが更新確認を実行したとき（またはパッケージ版の起動時更新確認）だけです。レンダラーはCSPとリクエストブロックで外部API/CDNを利用できません。
+
+## ダウンロード・インストール
+
+[最新版をダウンロード](https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases/latest)
+
+リンク先のGitHub Releasesで **Release Assets** を開き、お使いのOSに合うファイルを選択してください。
+
+- Windows: `Kusunoki.Desktop.Tools.Setup.*.exe`
+- macOS Apple Silicon: `*-arm64.dmg`
+- macOS Intel: `*-x64.dmg`
+- Linux: `*.AppImage`
+
+Windowsでは `win-unpacked` 内のexeではなく、`Kusunoki.Desktop.Tools.Setup.*.exe` を実行してインストールしてください。インストール後はスタートメニューまたはインストール版から起動します。
+
+未署名版では、WindowsのSmartScreenまたはmacOSのGatekeeperによる警告が表示される場合があります。
 
 ## 開発
 
