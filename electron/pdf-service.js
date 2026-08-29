@@ -535,6 +535,7 @@ module.exports = {
   applyPageSizes,
   applyWatermark,
   centeredDrawPosition,
+  findCjkFont,
   getDisplayedPageSize,
   getVisiblePageLayout,
   normalizePageRotation,

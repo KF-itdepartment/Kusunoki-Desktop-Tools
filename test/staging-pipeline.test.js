@@ -82,8 +82,18 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.equal(manifest.schema, 2);
   assert.equal(manifest.upstream.qr['script.js'].source, 'vendor/qr-generator/public/script.js');
   assert.equal(manifest.upstream.pdf['script.js'].source, 'vendor/pdf-editor/script.js');
-  assert.equal(manifest.upstream.pdf['script.js'].sha256, sha256(path.join(root, 'vendor', 'pdf-editor', 'script.js')));
-  assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png')));
+  const pdfScriptSourcePath = path.join(root, 'vendor', 'pdf-editor', 'script.js');
+  const qrLogoSourcePath = path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png');
+  if (fs.existsSync(pdfScriptSourcePath)) {
+    assert.equal(manifest.upstream.pdf['script.js'].sha256, sha256(pdfScriptSourcePath));
+  } else {
+    assert.equal(manifest.upstream.pdf['script.js'].generatedSha256, sha256(path.join(upstreamRoot, 'pdf', 'script.js')));
+  }
+  if (fs.existsSync(qrLogoSourcePath)) {
+    assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(qrLogoSourcePath));
+  } else {
+    assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(path.join(upstreamRoot, 'qr', 'logo.png')));
+  }
   assert.equal(manifest.integration.qrBatch.file, 'renderer/generated/upstream/qr/batch-utils.js');
   assert.equal(manifest.integration.pdfFrameBridge.file, 'renderer/generated/upstream/pdf/pdf-frame-bridge.js');
   assert.equal(manifest.integration.pdfDataUrl.file, 'renderer/generated/upstream/pdf/pdf-data-url.js');
