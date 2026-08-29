@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 
@@ -9,9 +10,40 @@ const root = path.join(__dirname, '..');
 const generatedRoot = path.join(root, 'renderer', 'generated');
 const upstreamRoot = path.join(generatedRoot, 'upstream');
 
-function sha256(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const TEXT_EXTENSIONS = new Set([
+  '.cjs', '.css', '.csv', '.html', '.htm', '.js', '.jsx', '.json', '.mjs',
+  '.map', '.md', '.scss', '.svg', '.ts', '.tsx', '.txt', '.xml', '.yaml',
+  '.yml'
+]);
+
+function canonicalBytes(file) {
+  const bytes = fs.readFileSync(file);
+  if (!TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())) return bytes;
+  return Buffer.from(bytes.toString('utf8').replace(/\r\n?/gu, '\n'), 'utf8');
 }
+
+function sha256(file) {
+  return crypto.createHash('sha256').update(canonicalBytes(file)).digest('hex');
+}
+
+test('canonical text hashes are stable across CRLF and LF checkouts', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kusunoki-canonical-hash-'));
+  try {
+    const lf = path.join(fixture, 'fixture.txt');
+    const crlf = path.join(fixture, 'fixture-copy.txt');
+    fs.writeFileSync(lf, 'one\ntwo\n', 'utf8');
+    fs.writeFileSync(crlf, 'one\r\ntwo\r\n', 'utf8');
+    assert.equal(sha256(lf), sha256(crlf));
+
+    const binaryLf = path.join(fixture, 'fixture.png');
+    const binaryCrlf = path.join(fixture, 'fixture-copy.png');
+    fs.writeFileSync(binaryLf, Buffer.from([0x01, 0x0a, 0x02]));
+    fs.writeFileSync(binaryCrlf, Buffer.from([0x01, 0x0d, 0x0a, 0x02]));
+    assert.notEqual(sha256(binaryLf), sha256(binaryCrlf));
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
 
 function runStage() {
   const script = require.resolve('../scripts/stage-vendors.js');

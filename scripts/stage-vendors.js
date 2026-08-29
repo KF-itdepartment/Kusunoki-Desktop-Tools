@@ -2,6 +2,23 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Git checkouts can materialize text files with either LF or CRLF line
+// endings (notably when a developer stages the vendors on Windows and CI
+// validates the committed fallback on Ubuntu). Manifest hashes therefore
+// describe canonical UTF-8 text, while binary assets such as PNGs remain
+// byte-for-byte hashes.
+const TEXT_EXTENSIONS = new Set([
+  '.cjs', '.css', '.csv', '.html', '.htm', '.js', '.jsx', '.json', '.mjs',
+  '.map', '.md', '.scss', '.svg', '.ts', '.tsx', '.txt', '.xml', '.yaml',
+  '.yml'
+]);
+
+function canonicalBytes(file) {
+  const bytes = fs.readFileSync(file);
+  if (!TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())) return bytes;
+  return Buffer.from(bytes.toString('utf8').replace(/\r\n?/gu, '\n'), 'utf8');
+}
+
 // This is the only build-time boundary between the read-only upstream
 // submodules and the desktop shell. It copies source units into the package,
 // rewrites CDN references to local npm assets, and generates the bridge used
@@ -36,7 +53,7 @@ function copy(source, target) {
 }
 
 function hash(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return crypto.createHash('sha256').update(canonicalBytes(file)).digest('hex');
 }
 
 function writeUtf8(file, value) {

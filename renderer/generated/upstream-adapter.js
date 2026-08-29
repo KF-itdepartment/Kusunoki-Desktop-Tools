@@ -38,17 +38,17 @@
   "pdf": {
     "index.html": {
       "source": "vendor/pdf-editor/index.html",
-      "sha256": "bbf32a77c146c6b94a2c525fd4381fbc93980a6e5c0409adf751a6fa3feeeeb9",
-      "generatedSha256": "fe111632b8052a602ed9782e6ebeb1cff44489977f2c4b8ba4adf5d6c1ab9e61"
+      "sha256": "08c413c086e4a755e055946bec36160c0365ad4a123cb554a263ac50d69c704f",
+      "generatedSha256": "edd88a52e43b6ef911afdaead49bbe282ec39e174759379776c4318433acf98e"
     },
     "script.js": {
       "source": "vendor/pdf-editor/script.js",
-      "sha256": "a6b90d529f828c4256ff711528760f80ae056145171cb55ce587c1d7db026059",
-      "generatedSha256": "0407e97c9e1c26a6a6f735fa06dd5b93f5963837fc8743b99d425b944ad490cf"
+      "sha256": "6d24ea88e93beb9a16da86480fb8d73211f089ea905c767b9902cda574b28011",
+      "generatedSha256": "46f612769c8a02620802f5d06a344a60c8b692959852e2861264083113a9aeca"
     },
     "SPECIFICATION.md": {
       "source": "vendor/pdf-editor/SPECIFICATION.md",
-      "sha256": "bc8799bde38618d4b4eb9a48d66182148c08b2bc3f851530b82d2f9b351b8e71"
+      "sha256": "4e34d7f650720e9d31d87d70c7af3fa5181c83195ef5afc2fa956ae4b312aab3"
     },
     "pdf-frame-bridge.js": {
       "source": "scripts/stage-vendors.js",
