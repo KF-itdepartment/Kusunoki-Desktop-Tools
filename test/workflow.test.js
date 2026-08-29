@@ -23,7 +23,7 @@ test('release workflow preserves 1.0.0 first release and gates tags behind tests
   assert.doesNotMatch(workflow, /submodules:\s*recursive/u);
 });
 
-test('macOS release packages both explicit architectures and combined updater metadata', () => {
+test('macOS release packages both explicit architectures and validates safe updater metadata', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const macStart = workflow.indexOf('      - name: Package macOS x64 and arm64 DMG');
@@ -39,8 +39,10 @@ test('macOS release packages both explicit architectures and combined updater me
   assert.match(macSection, /test "\$\{#x64_dmgs\[@\]\}" -eq 1/u);
   assert.match(macSection, /test "\$\{#arm64_dmgs\[@\]\}" -eq 1/u);
   assert.match(macSection, /test -s dist\/latest-mac\.yml/u);
-  assert.match(macSection, /grep -F -- "\$\(basename "\$\{x64_dmgs\[0\]\}"\)" dist\/latest-mac\.yml/u);
-  assert.match(macSection, /grep -F -- "\$\(basename "\$\{arm64_dmgs\[0\]\}"\)" dist\/latest-mac\.yml/u);
+  assert.match(macSection, /metadata_matches=0/u);
+  assert.match(macSection, /for dmg in "\$\{x64_dmgs\[0\]\}" "\$\{arm64_dmgs\[0\]\}"/u);
+  assert.match(macSection, /grep -F -q -- "\$\(basename "\$\{dmg\}"\)" dist\/latest-mac\.yml/u);
+  assert.match(macSection, /test "\$\{metadata_matches\}" -ge 1/u);
   assert.match(workflow, /files:\s+release-assets\/\*\*/u);
 });
 

@@ -108,9 +108,19 @@ jobs:
           test -s "${x64_dmgs[0]}"
           test -s "${arm64_dmgs[0]}"
           test "$(basename "${x64_dmgs[0]}")" != "$(basename "${arm64_dmgs[0]}")"
+          # electron-builder currently writes one latest-mac.yml for the last
+          # mac target in a multi-arch invocation. Unsigned macOS updates use
+          # the release page, so combined metadata is not required. When the
+          # metadata is emitted, require it to name at least one DMG produced
+          # by this job rather than assuming both architectures are listed.
           test -s dist/latest-mac.yml
-          grep -F -- "$(basename "${x64_dmgs[0]}")" dist/latest-mac.yml
-          grep -F -- "$(basename "${arm64_dmgs[0]}")" dist/latest-mac.yml
+          metadata_matches=0
+          for dmg in "${x64_dmgs[0]}" "${arm64_dmgs[0]}"; do
+            if grep -F -q -- "$(basename "${dmg}")" dist/latest-mac.yml; then
+              metadata_matches=$((metadata_matches + 1))
+            fi
+          done
+          test "${metadata_matches}" -ge 1
       - name: Package Linux x64 AppImage
         if: matrix.name == 'linux-x64'
         run: npm run pack -- --publish never --linux AppImage --x64
