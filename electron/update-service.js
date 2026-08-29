@@ -9,6 +9,7 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
   let refusedThisLaunch = false;
   let lastProgress = null;
   const listeners = new Set();
+  const promptedVersions = new Set();
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
@@ -19,6 +20,7 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
   };
   autoUpdater.on?.('download-progress', (progress) => notify({ type: 'progress', percent: progress.percent, transferred: progress.transferred, total: progress.total }));
   autoUpdater.on?.('update-downloaded', (info) => notify({ type: 'downloaded', version: formatVersion(info) }));
+  autoUpdater.on?.('update-available', (info) => { void askOnce(info); });
   autoUpdater.on?.('error', (error) => {
     logger.warn?.('更新確認に失敗しました:', error);
     notify({ type: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -61,6 +63,13 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
     }
   }
 
+  async function askOnce(info) {
+    const version = formatVersion(info);
+    if (!version || promptedVersions.has(version)) return { status: 'skipped', version };
+    promptedVersions.add(version);
+    return ask(info);
+  }
+
   async function check() {
     if (!app.isPackaged) return { status: 'disabled', reason: 'development' };
     if (refusedThisLaunch) return { status: 'skipped', reason: 'refused-this-launch' };
@@ -68,7 +77,7 @@ function createUpdateService({ app, autoUpdater, dialog, shell, processPlatform 
       const result = await autoUpdater.checkForUpdates();
       const info = result?.updateInfo;
       if (!info || !info.version || info.version === app.getVersion?.()) return { status: 'none' };
-      return ask(info);
+      return askOnce(info);
     } catch (error) {
       logger.warn?.('更新確認に失敗しました:', error);
       return { status: 'error', message: error instanceof Error ? error.message : String(error) };
