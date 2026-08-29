@@ -53,8 +53,15 @@
 
     <section id="pdf-view" class="view" aria-labelledby="pdf-heading" hidden>
       <div class="section-heading"><div><p class="eyebrow">LOCAL PDF PROCESSING</p><h1 id="pdf-heading">PDFエディター</h1><p>PDFの結合・分割・番号・サイズ調整・ウォーターマークをローカル処理します。</p></div></div>
+      <div class="pdf-upstream-shell">
+        <p id="pdf-frame-status" class="status" role="status" aria-live="polite">上流PDFエディターを読み込んでいます…</p>
+        <iframe id="pdf-editor-frame" title="PDFエディター（上流画面）" src="./generated/upstream/pdf/index.html" sandbox="allow-scripts allow-downloads allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>
+      </div>
       <div id="pdf-handoff" class="notice" hidden>QRコードをウォーターマークに設定しました。PDFを選択して処理してください。</div>
-      <div class="panel">
+      <!-- The former shell implementation remains as a hidden emergency
+           fallback for diagnostics; the generated upstream iframe above is
+           the only normal PDF route. -->
+      <div class="panel legacy-pdf-fallback" hidden aria-hidden="true">
         <div class="form-field"><label for="pdf-inputs">PDFファイル（複数選択可）</label><input id="pdf-inputs" type="file" accept="application/pdf" multiple></div><ol id="pdf-file-list" class="file-list"></ol>
         <div class="option-grid"><label class="option-card"><input id="mode-merge" type="checkbox" checked><span><strong>結合</strong><small>すべてのPDFを順番に結合</small></span></label><label class="option-card"><input id="mode-split" type="checkbox"><span><strong>分割</strong><small>先頭PDFからページを抽出</small></span></label><label class="option-card"><input id="mode-watermark" type="checkbox"><span><strong>ウォーターマーク</strong><small>画像または文字を中央に重ねる</small></span></label></div>
         <div id="split-options" class="sub-panel" hidden><div class="form-field"><label for="split-range">抽出範囲</label><input id="split-range" type="text" placeholder="例: 1-3,5"><small>空欄の場合は全ページ</small></div></div>
@@ -65,7 +72,7 @@
         <div class="sub-panel"><div class="form-grid two-column"><label class="check-label"><input id="output-pdf-check" type="checkbox" checked>PDFで保存</label><label class="check-label"><input id="output-webp-check" type="checkbox">WebP ZIPでも保存</label></div><label class="inline-field" id="webp-quality-wrap" hidden>WebP画質<select id="webp-quality"><option value="small">軽量</option><option value="standard" selected>標準</option><option value="high">高品質</option></select></label></div>
         <div class="control-row"><button id="pdf-preview-btn" class="secondary" disabled>プレビュー</button><button id="pdf-action-btn" class="primary" disabled>処理して保存</button><button id="pdf-clear-btn" class="quiet-button">クリア</button></div><p id="pdf-status" class="status" role="status" aria-live="polite"></p>
       </div>
-      <div class="preview-panel"><h2>プレビュー</h2><div id="pdf-preview-empty" class="empty-state">処理後のPDFをプレビューできます</div><iframe id="pdf-viewer" title="PDFプレビュー" hidden></iframe></div>
+      <div class="preview-panel legacy-pdf-fallback" hidden aria-hidden="true"><h2>プレビュー</h2><div id="pdf-preview-empty" class="empty-state">処理後のPDFをプレビューできます</div><iframe id="pdf-viewer" title="PDFプレビュー" hidden></iframe></div>
     </section>
 
     <section id="assets-view" class="view" aria-labelledby="assets-heading" hidden>
@@ -79,7 +86,7 @@
   <script src="./vendor/jszip.min.js"></script>
   <!-- batch-utils and this generated bridge are produced from the QR/PDF
        submodules by scripts/stage-vendors.js. -->
-  <script src="./batch-utils.js"></script>
+  <script src="./generated/upstream/qr/batch-utils.js"></script>
   <script src="./generated/upstream-adapter.js"></script>
   <script src="./app.js"></script>
 </body>

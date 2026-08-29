@@ -18,13 +18,26 @@
       "logo.png": {
         "source": "vendor/qr-generator/public/logo.png",
         "sha256": "b1fac73398e2abe5702026fff8b395f57e6345abb3d6834564ab2d68fa02a722"
+      },
+      "vendor/fflate.mjs": {
+        "source": "vendor/qr-generator/public/vendor/fflate.mjs",
+        "sha256": "b7ca4450b19559a1d50eb381adcee94b82449674be4cd17789d9beba7e6122a1"
+      },
+      "vendor/fflate.LICENSE.txt": {
+        "source": "vendor/qr-generator/public/vendor/fflate.LICENSE.txt",
+        "sha256": "766daa9b2ab0ab2698c769f334a6d72c42437b0a7d0d0dfd5c13c64b3120117b"
+      },
+      "batch-utils.js": {
+        "source": "vendor/qr-generator/public/batch-utils.mjs",
+        "sha256": "5120e0eaee28e146fbf4a6278734db2401c7486ca2f9b198acec969ca6aa4ccd",
+        "generatedSha256": "82d4b720be3d029fd58acc8ccc59744d4435e5a49b65176c5da999527e27aeda"
       }
     },
     "pdf": {
       "index.html": {
         "source": "vendor/pdf-editor/index.html",
         "sha256": "bbf32a77c146c6b94a2c525fd4381fbc93980a6e5c0409adf751a6fa3feeeeb9",
-        "generatedSha256": "ab539a966bcdcbe0c0f0f1cd37d6e7550d36bcad38fbe55c18acafa153854d6a"
+        "generatedSha256": "ac527f85ae3b66978f132eec1d8833377311a962e1ba46cbdcdaf243081121d1"
       },
       "script.js": {
         "source": "vendor/pdf-editor/script.js",
@@ -34,6 +47,10 @@
       "SPECIFICATION.md": {
         "source": "vendor/pdf-editor/SPECIFICATION.md",
         "sha256": "bc8799bde38618d4b4eb9a48d66182148c08b2bc3f851530b82d2f9b351b8e71"
+      },
+      "pdf-frame-bridge.js": {
+        "source": "scripts/stage-vendors.js",
+        "sha256": "ae6e43f658ca1a1006c863ce0acbf5b54ba65c1d800924b3c34060ff0715664c"
       }
     }
   },
@@ -61,6 +78,17 @@
   },
   "adapter": {
     "file": "renderer/generated/upstream-adapter.js",
-    "sha256": "0e450d76771920bd1ed865dd34c0d9b102da7d5739443745008458fe1b804cf8"
+    "sha256": "9c2519d751e7e4dc6b17dfac9a660395968fa45138b9f908f68a616d236c13a6"
+  },
+  "integration": {
+    "qrBatch": {
+      "file": "renderer/generated/upstream/qr/batch-utils.js",
+      "source": "vendor/qr-generator/public/batch-utils.mjs",
+      "sha256": "82d4b720be3d029fd58acc8ccc59744d4435e5a49b65176c5da999527e27aeda"
+    },
+    "pdfFrameBridge": {
+      "file": "renderer/generated/upstream/pdf/pdf-frame-bridge.js",
+      "sha256": "ae6e43f658ca1a1006c863ce0acbf5b54ba65c1d800924b3c34060ff0715664c"
+    }
   }
 }

@@ -14,7 +14,8 @@
     watermarkFile: null,
     lastPdf: null,
     objectUrls: new Set(),
-    draggedPdfIndex: null
+    draggedPdfIndex: null,
+    pdfFrameReady: false
   };
 
   const $ = (id) => document.getElementById(id);
@@ -136,7 +137,7 @@
       if (!state.qr) throw new Error('先にQRコードを生成してください。');
       const data = await svgToPng(state.qr.svg);
       state.pendingWatermark = generated.qr.createPdfHandoff(data, state.qr.text);
-      setView('pdf-view'); configureWatermarkPanel(); setStatus('pdf-status', 'QRコードをウォーターマークに設定しました。'); $('pdf-handoff').hidden = false;
+      setView('pdf-view'); sendPendingWatermark(); if (!state.pdfFrameReady) setStatus('pdf-frame-status', 'PDFエディターの準備後にQRコードを設定します。');
     } catch (error) { setStatus('qr-status', error instanceof Error ? error.message : 'PDFへの受渡しに失敗しました。', true); }
   }
 
@@ -144,6 +145,51 @@
     const file = event.target.files?.[0]; if (!file) return;
     try { const bytes = await readFileBytes(file); state.qrLogo = bytesToDataUrl(bytes, file.type); state.qrAngle = 0; $('angle-display').textContent = '0'; await generateQr(); }
     catch (error) { setStatus('qr-status', error instanceof Error ? error.message : 'ロゴを読み込めません。', true); }
+  }
+
+  function postPdfFrameMessage(message) {
+    const frame = $('pdf-editor-frame');
+    if (!frame?.contentWindow) throw new Error('PDFエディターを読み込めません。');
+    const transfer = message?.payload?.data instanceof ArrayBuffer ? [message.payload.data] : [];
+    frame.contentWindow.postMessage(message, '*', transfer);
+  }
+
+  function sendPendingWatermark() {
+    if (!state.pendingWatermark || !state.pdfFrameReady) return;
+    try {
+      postPdfFrameMessage(generated.pdfFrame.createWatermarkMessage(state.pendingWatermark));
+      setStatus('pdf-frame-status', 'QRコードをウォーターマークに設定しています…');
+    } catch (error) {
+      setStatus('pdf-frame-status', error instanceof Error ? error.message : 'PDFへの受渡しに失敗しました。', true);
+    }
+  }
+
+  function handlePdfFrameMessage(event) {
+    const frame = $('pdf-editor-frame');
+    const message = generated.pdfFrame.validateMessage(event, frame?.contentWindow);
+    if (!message) return;
+    if (message.type === generated.pdfFrame.types.ready && message.payload.source !== 'generated/upstream/pdf') return;
+    if (message.type === generated.pdfFrame.types.ready) {
+      state.pdfFrameReady = true;
+      setStatus('pdf-frame-status', '上流PDFエディターを利用できます。');
+      sendPendingWatermark();
+    } else if (message.type === generated.pdfFrame.types.applied) {
+      state.pendingWatermark = null;
+      setStatus('pdf-frame-status', `ウォーターマークを設定しました: ${message.payload.fileName}`);
+    } else if (message.type === generated.pdfFrame.types.error) {
+      setStatus('pdf-frame-status', message.payload.message || 'PDFへの受渡しに失敗しました。', true);
+    }
+  }
+
+  function setupPdfFrame() {
+    const frame = $('pdf-editor-frame');
+    if (!frame) return;
+    frame.addEventListener('load', () => {
+      state.pdfFrameReady = false;
+      setStatus('pdf-frame-status', '上流PDFエディターを読み込んでいます…');
+      if (frame.contentWindow) postPdfFrameMessage(generated.pdfFrame.createPing());
+    });
+    window.addEventListener('message', handlePdfFrameMessage);
   }
 
   function renderBatchErrors(errors) {
@@ -270,13 +316,14 @@
       if (button.dataset.action==='asset-rename') { const name=window.prompt('新しい名前',card.querySelector('.asset-name').textContent); if (name) { await desktop.assets.rename(id,name); await loadAssets(); } return; }
       const loaded=await desktop.assets.read(id); const data=normalizeBytes(loaded.data);
       if (button.dataset.action==='asset-download') { downloadBytes(data,safeDownloadName(loaded.metadata.fileName,loaded.metadata.mimeType==='image/svg+xml'?'svg':loaded.metadata.mimeType==='image/jpeg'?'jpg':'png'),loaded.metadata.mimeType); return; }
-      state.pendingWatermark=generated.qr.createPdfHandoff(data, loaded.metadata.text, loaded.metadata.fileName, loaded.metadata.mimeType); $('mode-watermark').checked=true; setView('pdf-view'); configureWatermarkPanel(); $('pdf-handoff').hidden=false; setStatus('pdf-status','素材をウォーターマークに設定しました。');
+      state.pendingWatermark=generated.qr.createPdfHandoff(data, loaded.metadata.text, loaded.metadata.fileName, loaded.metadata.mimeType); setView('pdf-view'); sendPendingWatermark(); if (!state.pdfFrameReady) setStatus('pdf-frame-status','PDFエディターの準備後に素材を設定します。');
     } catch (error) { setStatus('pdf-status', error instanceof Error ? error.message : '素材操作に失敗しました。', true); }
   }
 
   async function checkUpdates() { const button=$('check-update'); button.disabled=true; try { const result=await desktop.updates.check(); setStatus('qr-status',result.status==='disabled'?'開発モードでは実ネット更新を行いません。':result.status==='none'?'利用可能な更新はありません。':`更新: ${result.status}`); } catch (error) { setStatus('qr-status',error instanceof Error?error.message:'更新確認に失敗しました。',true); } finally { button.disabled=false; } }
 
   function wireEvents() {
+    setupPdfFrame();
     setupTabs(); $('generate-btn').addEventListener('click',()=>void generateQr()); $('qr-text').addEventListener('keydown',(event)=>{if(event.key==='Enter')void generateQr();}); $('rotate-btn').addEventListener('click',()=>{state.qrAngle=(state.qrAngle+45)%360;$('angle-display').textContent=state.qrAngle;void generateQr();}); $('logo-upload').addEventListener('change',(event)=>void handleLogo(event)); $('no-logo-check').addEventListener('change',()=>{ $('logo-controls').style.opacity=$('no-logo-check').checked?'.45':'1'; $('rotate-btn').disabled=$('no-logo-check').checked; $('logo-upload').disabled=$('no-logo-check').checked; if (state.qr)void generateQr(); }); $('download-btn').addEventListener('click',()=>void saveQr()); $('save-asset-btn').addEventListener('click',()=>void saveQrAsset()); $('use-pdf-btn').addEventListener('click',()=>void useQrInPdf()); $('batch-generate-btn').addEventListener('click',()=>void generateBatchZip()); $('refresh-assets').addEventListener('click',()=>void loadAssets()); $('asset-list').addEventListener('click',(event)=>void assetAction(event)); $('check-update').addEventListener('click',()=>void checkUpdates()); $('release-link').addEventListener('click',async()=>{try{await desktop.updates.openRelease();}catch{setStatus('qr-status','Releaseページを開けません。',true);}});
     $('pdf-file-list').addEventListener('click',(event)=>{const button=event.target.closest('button[data-pdf-action]');if(!button)return;const index=Number(button.dataset.index);if(button.dataset.pdfAction==='pdf-up')movePdfFile(index,-1);else if(button.dataset.pdfAction==='pdf-down')movePdfFile(index,1);else if(button.dataset.pdfAction==='pdf-preview-file'&&state.pdfFiles[index])previewPdf(state.pdfFiles[index].data);});
     $('pdf-file-list').addEventListener('dragstart',(event)=>{const item=event.target.closest('li[data-index]');if(!item)return;state.draggedPdfIndex=Number(item.dataset.index);event.dataTransfer?.setData('text/plain',item.dataset.index);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});

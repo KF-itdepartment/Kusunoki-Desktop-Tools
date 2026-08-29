@@ -20,13 +20,26 @@
     "logo.png": {
       "source": "vendor/qr-generator/public/logo.png",
       "sha256": "b1fac73398e2abe5702026fff8b395f57e6345abb3d6834564ab2d68fa02a722"
+    },
+    "vendor/fflate.mjs": {
+      "source": "vendor/qr-generator/public/vendor/fflate.mjs",
+      "sha256": "b7ca4450b19559a1d50eb381adcee94b82449674be4cd17789d9beba7e6122a1"
+    },
+    "vendor/fflate.LICENSE.txt": {
+      "source": "vendor/qr-generator/public/vendor/fflate.LICENSE.txt",
+      "sha256": "766daa9b2ab0ab2698c769f334a6d72c42437b0a7d0d0dfd5c13c64b3120117b"
+    },
+    "batch-utils.js": {
+      "source": "vendor/qr-generator/public/batch-utils.mjs",
+      "sha256": "5120e0eaee28e146fbf4a6278734db2401c7486ca2f9b198acec969ca6aa4ccd",
+      "generatedSha256": "82d4b720be3d029fd58acc8ccc59744d4435e5a49b65176c5da999527e27aeda"
     }
   },
   "pdf": {
     "index.html": {
       "source": "vendor/pdf-editor/index.html",
       "sha256": "bbf32a77c146c6b94a2c525fd4381fbc93980a6e5c0409adf751a6fa3feeeeb9",
-      "generatedSha256": "ab539a966bcdcbe0c0f0f1cd37d6e7550d36bcad38fbe55c18acafa153854d6a"
+      "generatedSha256": "ac527f85ae3b66978f132eec1d8833377311a962e1ba46cbdcdaf243081121d1"
     },
     "script.js": {
       "source": "vendor/pdf-editor/script.js",
@@ -36,6 +49,10 @@
     "SPECIFICATION.md": {
       "source": "vendor/pdf-editor/SPECIFICATION.md",
       "sha256": "bc8799bde38618d4b4eb9a48d66182148c08b2bc3f851530b82d2f9b351b8e71"
+    },
+    "pdf-frame-bridge.js": {
+      "source": "scripts/stage-vendors.js",
+      "sha256": "ae6e43f658ca1a1006c863ce0acbf5b54ba65c1d800924b3c34060ff0715664c"
     }
   },
   "browser": {
@@ -48,8 +65,16 @@
 
   const batch = window.BatchUtils;
   if (!batch) {
-    throw new Error('生成済みQR upstream adapterの前にbatch-utils.jsを読み込んでください。');
+    throw new Error('生成済みQR batch adapterの前にgenerated/upstream/qr/batch-utils.jsを読み込んでください。');
   }
+  const FRAME_VERSION = 1;
+  const FRAME_SET_WATERMARK = 'kusunoki:pdf:set-watermark';
+  const FRAME_PING = 'kusunoki:pdf:ping';
+  const FRAME_READY = 'kusunoki:pdf:ready';
+  const FRAME_APPLIED = 'kusunoki:pdf:watermark-applied';
+  const FRAME_ERROR = 'kusunoki:pdf:error';
+  const FRAME_MAX_BYTES = 20 * 1024 * 1024;
+  const FRAME_MIMES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
   const copyBytes = (value) => {
     if (value instanceof Uint8Array) return new Uint8Array(value);
     if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
@@ -62,6 +87,35 @@
     fileName: String(fileName || 'qr-watermark.png'),
     mimeType: String(mimeType || 'image/png')
   });
+  const validateFrameHandoff = (handoff) => {
+    const data = copyBytes(handoff?.data);
+    const fileName = String(handoff?.fileName || 'qr-watermark.png');
+    const mimeType = String(handoff?.mimeType || 'image/png');
+    const text = String(handoff?.text || '');
+    if (!data.byteLength || data.byteLength > FRAME_MAX_BYTES || fileName.length > 160 || fileName === '.' || fileName === '..' || /[\u0000-\u001f<>:"/\\|?*]/u.test(fileName) || !FRAME_MIMES.has(mimeType) || text.length > 4096) throw new TypeError('PDF受渡しデータが不正です。');
+    return { data, fileName, mimeType, text };
+  };
+  const createFramePing = () => ({ version: FRAME_VERSION, type: FRAME_PING, payload: {} });
+  const createWatermarkMessage = (handoff) => {
+    const checked = validateFrameHandoff(handoff);
+    return { version: FRAME_VERSION, type: FRAME_SET_WATERMARK, payload: { data: checked.data.buffer, fileName: checked.fileName, mimeType: checked.mimeType, text: checked.text } };
+  };
+  const validateFrameMessage = (event, frameWindow) => {
+    if (!frameWindow || !event || event.source !== frameWindow) return null;
+    const origin = String(event.origin || '');
+    const ownOrigin = String(window.location?.origin || 'null');
+    if (origin !== 'null' && origin !== ownOrigin) return null;
+    const message = event.data;
+    if (!message || typeof message !== 'object' || Array.isArray(message) || message.version !== FRAME_VERSION) return null;
+    if (![FRAME_READY, FRAME_APPLIED, FRAME_ERROR].includes(message.type) || !message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)) return null;
+    if (message.type === FRAME_READY) return { type: message.type, payload: { source: String(message.payload.source || ''), capabilities: Array.isArray(message.payload.capabilities) ? message.payload.capabilities.map(String).slice(0, 16) : [] } };
+    if (message.type === FRAME_APPLIED) {
+      const byteLength = Number(message.payload.byteLength);
+      if (!Number.isSafeInteger(byteLength) || byteLength < 1 || byteLength > FRAME_MAX_BYTES) return null;
+      return { type: message.type, payload: { fileName: String(message.payload.fileName || ''), mimeType: String(message.payload.mimeType || ''), byteLength } };
+    }
+    return { type: message.type, payload: { code: String(message.payload.code || 'unknown'), message: String(message.payload.message || '').slice(0, 500) } };
+  };
   const processPdf = (payload) => window.desktop.pdf.process(payload);
   window.KusunokiGeneratedUpstream = Object.freeze({
     metadata: Object.freeze(metadata),
@@ -78,6 +132,13 @@
       sourceHash: metadata.pdf['script.js'].sha256,
       html: 'generated/upstream/pdf/index.html',
       process: processPdf
+    }),
+    pdfFrame: Object.freeze({
+      version: FRAME_VERSION,
+      types: Object.freeze({ ready: FRAME_READY, applied: FRAME_APPLIED, error: FRAME_ERROR, setWatermark: FRAME_SET_WATERMARK, ping: FRAME_PING }),
+      createPing: createFramePing,
+      createWatermarkMessage,
+      validateMessage: validateFrameMessage
     })
   });
 })();

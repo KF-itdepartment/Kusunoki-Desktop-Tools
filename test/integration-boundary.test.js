@@ -12,6 +12,7 @@ function loadBridge(processPdf = (payload) => payload) {
   const context = {
     window: {
       BatchUtils: { parseBatchInput: () => ({ valid: true }), assignBatchFileNames: (items) => items },
+      location: { origin: 'null' },
       desktop: { pdf: { process: processPdf } }
     },
     ArrayBuffer,
@@ -34,4 +35,20 @@ test('QR-to-PDF and persistent asset handoff cross the generated bridge', async 
   const result = bridge.pdf.process({ files: [handoff.data], operation: 'watermark', config: { watermark: handoff } });
   assert.deepEqual(result.files[0], handoff.data);
   assert.equal(result.config.watermark.mimeType, 'image/png');
+
+  const frameWindow = {};
+  const message = bridge.pdfFrame.createWatermarkMessage(handoff);
+  assert.deepEqual(Array.from(new Uint8Array(message.payload.data)), [1, 2, 3, 4]);
+  const accepted = bridge.pdfFrame.validateMessage({
+    source: frameWindow,
+    origin: 'null',
+    data: { version: 1, type: 'kusunoki:pdf:watermark-applied', payload: { fileName: 'handoff.png', mimeType: 'image/png', byteLength: 4 } }
+  }, frameWindow);
+  assert.equal(accepted.payload.byteLength, 4);
+  assert.equal(bridge.pdfFrame.validateMessage({
+    source: {},
+    origin: 'null',
+    data: message
+  }, frameWindow), null);
+  assert.throws(() => bridge.pdfFrame.createWatermarkMessage({ data: new Uint8Array(20 * 1024 * 1024 + 1), fileName: 'too-large.png', mimeType: 'image/png' }), /PDF/);
 });

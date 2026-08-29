@@ -11,8 +11,11 @@ const entries = listPackage(asar).map((entry) => entry.replaceAll('\\', '/').rep
 const required = [
   'vendor/qr-generator/public/logo.png',
   'renderer/generated/upstream-adapter.js',
+  'renderer/generated/upstream/qr/batch-utils.js',
   'renderer/generated/upstream/qr/script.js',
+  'renderer/generated/upstream/qr/vendor/fflate.mjs',
   'renderer/generated/upstream/pdf/script.js',
+  'renderer/generated/upstream/pdf/pdf-frame-bridge.js',
   'renderer/vendor/pdf-lib.min.js',
   'renderer/vendor/pdf.worker.min.js'
 ];

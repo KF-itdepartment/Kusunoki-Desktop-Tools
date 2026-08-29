@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDFツール</title>
@@ -653,6 +654,7 @@
 <script src="../../../vendor/pdf-lib.min.js"></script>
 <script src="../../../vendor/pdf.min.js"></script>
 <script src="../../../vendor/jszip.min.js"></script>
+<script src="pdf-frame-bridge.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

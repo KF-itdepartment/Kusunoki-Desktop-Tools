@@ -10,7 +10,7 @@ npm test
 npm run dev
 ```
 
-`npm install` の `prepare` が `vendor/qr-generator/public` と `vendor/pdf-editor` の上流画面・スクリプト・ロゴを `renderer/generated/upstream/` へ展開し、`renderer/generated/upstream-adapter.js` を生成します。PDFのunpkg参照は `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換されます。アプリの一括入力、QR→PDF受渡し、PDF処理はこの生成アダプター経由で実行され、`renderer/vendor/MANIFEST.json` のSHA-256で追跡できます。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
+`npm install` の `prepare` が `vendor/qr-generator/public` と `vendor/pdf-editor` の上流画面・スクリプト・ロゴを `renderer/generated/upstream/` へ展開します。QRの `batch-utils.mjs` は同じソースから `batch-utils.js` へ機械的にclassic/global変換され、シェルが実際にロードします。PDFの `index.html` / `script.js` は unpkg参照を `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換し、生成された `pdf-frame-bridge.js` とともにsandbox iframeで通常表示・実行されます。QR→PDF受渡しは検証済みpostMessageから上流UIの `#wm-img-input` へFile/DataTransferを設定します。統合アダプターと上流SHA-256は `renderer/vendor/MANIFEST.json` で追跡できます。単体QRの生成は上流画面のHTTP API依存を持ち込まず、ローカル `electron/qr-service.js` adapter（同期時はQR機能テストとmanifest確認）を使用します。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
 
 ## ビルド
 
@@ -34,6 +34,6 @@ npm run sync-upstreams
 
 ## リリース
 
-`.github/workflows/release.yml` は、最初の `main` 更新では `package.json` の `1.0.0` を変更せずテスト/build成功後に `v1.0.0` を作成します。既存tagに対応する次回以降だけpatch番号を上げ、候補のテスト/build成功後にversion commitとtagを作成し、3OSの成果物とelectron-builderの更新メタデータをGitHub Releaseへ公開します。version commitだけに付ける `[release-version]` markerとconcurrencyでbumpの無限ループを防ぎます。公開先は `KF-itdepartment/Kusunoki-Desktop-Tools` です。
+`.github/workflows/release.yml` は、最初の `main` 更新では `package.json` の `1.0.0` を変更せず、候補のテスト/build成功後に検証済みSHAを3OSへ渡し、全OS成果物の成功後にだけ `v1.0.0` tagとGitHub Releaseを作成します。既存tagに対応する次回以降だけpatch番号を上げ、候補のテスト/build成功後にversion commitをpushします。version commitだけに付ける `[release-version]` markerとconcurrencyでbumpの無限ループを防ぎます。公開先は `KF-itdepartment/Kusunoki-Desktop-Tools` です。
 
 本リポジトリにはGitHubへのpushや署名資格情報を含めていません。ローカルのElectron実行・テスト・packにはGitHub認証は不要ですが、実際のRelease公開、署名、macOS公証はCIの権限と各OSの証明書が必要です。
