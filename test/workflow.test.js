@@ -52,10 +52,8 @@ test('macOS release packages both explicit architectures and validates safe upda
   assert.match(macSection, /test "\$\{#x64_dmgs\[@\]\}" -eq 1/u);
   assert.match(macSection, /test "\$\{#arm64_dmgs\[@\]\}" -eq 1/u);
   assert.match(macSection, /test -s dist\/latest-mac\.yml/u);
-  assert.match(macSection, /metadata_matches=0/u);
-  assert.match(macSection, /for dmg in "\$\{x64_dmgs\[0\]\}" "\$\{arm64_dmgs\[0\]\}"/u);
-  assert.match(macSection, /grep -F -q -- "\$\(basename "\$\{dmg\}"\)" dist\/latest-mac\.yml/u);
-  assert.match(macSection, /test "\$\{metadata_matches\}" -ge 1/u);
+  assert.doesNotMatch(macSection, /metadata_matches|grep -F.*latest-mac/u);
+  assert.match(workflow, /dist\/\*\.dmg/u);
   assert.match(workflow, /files:\s+release-assets\/\*\*/u);
 });
 
