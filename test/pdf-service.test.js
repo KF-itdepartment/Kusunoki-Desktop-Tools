@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PDFDocument, PDFName, degrees } = require('pdf-lib');
-const { findCjkFont, getDisplayedPageSize, getVisiblePageLayout, parsePageRange, processPdf, visualHalfRegions } = require('../electron/pdf-service');
+const { canEmbedCjkFont, getDisplayedPageSize, getVisiblePageLayout, parsePageRange, processPdf, visualHalfRegions } = require('../electron/pdf-service');
 
 async function makePdf(pageCount, width = 595, height = 842) {
   const document = await PDFDocument.create();
@@ -78,8 +78,8 @@ test('page-size transform keeps link annotation geometry in sync', async () => {
 });
 
 test('Japanese text watermark is embedded when a platform CJK font is available', async (t) => {
-  if (!findCjkFont()) {
-    t.skip('No supported platform CJK font is installed in this test environment.');
+  if (!(await canEmbedCjkFont('社内確認'))) {
+    t.skip('No platform CJK font can be embedded by the bundled fontkit in this test environment.');
     return;
   }
   const source = await makePdf(1);

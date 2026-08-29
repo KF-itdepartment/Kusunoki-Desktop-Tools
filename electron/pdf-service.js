@@ -388,6 +388,24 @@ async function embedWatermarkFont(document, text = '') {
   return document.embedStandardFont(StandardFonts.Helvetica);
 }
 
+// A font file may be installed but still be unusable by the bundled fontkit
+// version (for example, some Windows TTC collections expose no embeddable
+// face). Keep this probe aligned with the production embedding path so tests
+// and diagnostics distinguish an actually usable CJK font from mere file
+// presence. Production watermark behavior remains fail-closed when no font
+// can be embedded.
+async function canEmbedCjkFont(text = '社内確認') {
+  if (!fontkit || !/[^\u0000-\u00ff]/u.test(String(text))) return false;
+  try {
+    const document = await PDFDocument.create();
+    const font = await embedWatermarkFont(document, String(text).slice(0, 200));
+    const width = font.widthOfTextAtSize(String(text).slice(0, 200), 18);
+    return Number.isFinite(width) && width > 0;
+  } catch {
+    return false;
+  }
+}
+
 function centeredDrawPosition(centerX, centerY, width, height, angleDegrees) {
   const radians = angleDegrees * Math.PI / 180;
   const cos = Math.cos(radians);
@@ -535,6 +553,7 @@ module.exports = {
   applyPageSizes,
   applyWatermark,
   centeredDrawPosition,
+  canEmbedCjkFont,
   findCjkFont,
   getDisplayedPageSize,
   getVisiblePageLayout,
