@@ -4,6 +4,13 @@ function invoke(channel, payload) {
   return ipcRenderer.invoke(channel, payload);
 }
 
+function subscribe(channel, listener) {
+  if (typeof listener !== 'function') throw new TypeError('イベント購読関数が不正です。');
+  const handler = (_event, payload) => listener(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
   app: Object.freeze({
     getVersion: () => invoke('app.version')
@@ -23,9 +30,10 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
   }),
   updates: Object.freeze({
     check: () => invoke('updates.check'),
-    download: () => invoke('updates.download'),
     install: () => invoke('updates.install'),
+    openInstaller: () => invoke('updates.open-installer'),
     openRelease: () => invoke('updates.open-release'),
-    releaseUrl: () => invoke('updates.release-url')
+    onStatus: (listener) => subscribe('updates.status', listener),
+    onOpenRequested: (listener) => subscribe('updates.open-dialog', listener)
   })
 }));

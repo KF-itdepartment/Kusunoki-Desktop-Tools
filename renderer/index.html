@@ -81,6 +81,27 @@
     </section>
   </main>
 
+  <dialog id="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-description">
+    <form method="dialog" class="update-dialog-card">
+      <button id="update-close" class="update-close" type="submit" aria-label="閉じる">×</button>
+      <p class="eyebrow">APPLICATION UPDATE</p>
+      <h2 id="update-dialog-title">更新</h2>
+      <p id="update-dialog-description" class="update-description" aria-live="polite"></p>
+      <dl class="update-versions">
+        <div><dt>現在のバージョン</dt><dd id="update-current-version">—</dd></div>
+        <div><dt>最新バージョン</dt><dd id="update-latest-version">—</dd></div>
+      </dl>
+      <progress id="update-progress" max="100" value="0" hidden aria-label="更新の進捗"></progress>
+      <p id="update-progress-label" class="update-progress-label" aria-live="polite"></p>
+      <p id="update-status" class="sr-only" role="status" aria-live="polite"></p>
+      <div class="update-actions">
+        <button id="update-primary" class="primary" type="button" hidden></button>
+        <button id="update-secondary" class="secondary" type="button" hidden></button>
+        <button id="update-fallback" class="quiet-button" type="button" hidden></button>
+      </div>
+    </form>
+  </dialog>
+
   <footer class="footer"><span>外部ネットワーク通信なし（更新確認を除く）</span><button id="release-link" class="link-button">GitHub Release</button></footer>
   <script src="./vendor/pdf.min.js"></script>
   <script src="./vendor/jszip.min.js"></script>
@@ -88,6 +109,7 @@
        submodules by scripts/stage-vendors.js. -->
   <script src="./generated/upstream/qr/batch-utils.js"></script>
   <script src="./generated/upstream-adapter.js"></script>
+  <script src="./update-ui.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

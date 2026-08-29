@@ -10,6 +10,7 @@ if (!fs.existsSync(asar)) {
 const entries = listPackage(asar).map((entry) => entry.replaceAll('\\', '/').replace(/^\/+/, ''));
 const required = [
   'renderer/app-icon.png',
+  'renderer/update-ui.js',
   'renderer/generated/upstream-adapter.js',
   'renderer/generated/upstream/qr/index.html',
   'renderer/generated/upstream/qr/batch-utils.js',

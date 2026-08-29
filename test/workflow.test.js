@@ -42,6 +42,7 @@ test('macOS release packages both explicit architectures and validates safe upda
   const macStart = workflow.indexOf('      - name: Package macOS x64 and arm64 DMG');
   const linuxStart = workflow.indexOf('      - name: Package Linux x64 AppImage');
   assert.ok(macStart >= 0 && linuxStart > macStart, 'macOS packaging step must precede Linux packaging');
+  assert.equal(packageJson.build.win.artifactName, 'Kusunoki-Desktop-Tools-Setup.${ext}');
   assert.equal(packageJson.build.mac.artifactName, '${productName}-${version}-${arch}.${ext}');
   assert.deepEqual(packageJson.build.mac.target[0].arch.slice().sort(), ['arm64', 'x64']);
   const macSection = workflow.slice(macStart, linuxStart);

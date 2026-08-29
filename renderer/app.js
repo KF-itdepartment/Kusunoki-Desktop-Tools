@@ -4,6 +4,8 @@
   const desktop = window.desktop;
   const generated = window.KusunokiGeneratedUpstream;
   if (!generated) throw new Error('Generated upstream adapter is required.');
+  const updateUi = window.KusunokiUpdateUI;
+  if (!updateUi) throw new Error('Update UI module is required.');
   const state = {
     view: 'qr-view',
     qr: null,
@@ -15,7 +17,12 @@
     lastPdf: null,
     objectUrls: new Set(),
     draggedPdfIndex: null,
-    pdfFrameReady: false
+    pdfFrameReady: false,
+    update: { status: 'checking', currentVersion: '', latestVersion: '', version: '', mode: 'automatic', percent: 0 },
+    updateCheckPromise: null,
+    updateInstallPromise: null,
+    updateInstallerPromise: null,
+    updateReleasePromise: null
   };
 
   const $ = (id) => document.getElementById(id);
@@ -322,10 +329,209 @@
     } catch (error) { setStatus('pdf-status', error instanceof Error ? error.message : '素材操作に失敗しました。', true); }
   }
 
-  async function checkUpdates() { const button=$('check-update'); button.disabled=true; try { const result=await desktop.updates.check(); setStatus('qr-status',result.status==='disabled'?'開発モードでは実ネット更新を行いません。':result.status==='none'?'利用可能な更新はありません。':`更新: ${result.status}`); } catch (error) { setStatus('qr-status',error instanceof Error?error.message:'更新確認に失敗しました。',true); } finally { button.disabled=false; } }
+  function updateIsBusy() {
+    return state.update.status === 'downloading' || state.update.status === 'installing';
+  }
+
+  function updateActionButton(element, descriptor) {
+    if (!element) return;
+    element.hidden = !descriptor;
+    element.disabled = !descriptor;
+    element.textContent = descriptor?.label || '';
+    element.dataset.updateAction = descriptor?.action || '';
+  }
+
+  function renderUpdateDialog() {
+    const dialog = $('update-dialog');
+    if (!dialog) return;
+    const model = updateUi.createUpdateViewModel(state.update, {
+      currentVersion: state.update.currentVersion,
+      latestVersion: state.update.latestVersion,
+      percent: state.update.percent
+    });
+    $('update-dialog-title').textContent = model.title;
+    $('update-dialog-description').textContent = model.description;
+    $('update-current-version').textContent = model.currentVersion === '—' ? '—' : `v${model.currentVersion}`;
+    $('update-latest-version').textContent = model.latestVersion === '—' ? '—' : `v${model.latestVersion}`;
+    const progress = $('update-progress');
+    progress.hidden = !model.showProgress;
+    progress.value = model.percent;
+    $('update-progress-label').textContent = model.showProgress ? model.progressLabel : '';
+    $('update-status').textContent = model.ariaLive;
+    $('update-dialog').classList.toggle('update-error', model.status === updateUi.STATUS.ERROR);
+    const close = $('update-close');
+    close.disabled = !model.canClose;
+    close.setAttribute('aria-disabled', String(!model.canClose));
+    updateActionButton($('update-primary'), model.primary);
+    updateActionButton($('update-secondary'), model.secondary);
+    updateActionButton($('update-fallback'), model.fallback);
+    if (model.status === updateUi.STATUS.ERROR && state.updateInstallerPromise) $('update-fallback').disabled = true;
+  }
+
+  function showUpdateDialog(nextState = {}) {
+    state.update = { ...state.update, ...nextState };
+    renderUpdateDialog();
+    const dialog = $('update-dialog');
+    if (dialog && !dialog.open) dialog.showModal();
+  }
+
+  function setUpdateState(nextState) {
+    state.update = { ...state.update, ...nextState };
+    renderUpdateDialog();
+  }
+
+  function applyUpdateResult(result) {
+    const status = ['disabled', 'none', 'available', 'error'].includes(result?.status) ? result.status : 'error';
+    const mode = result?.mode === 'manual' || result?.mode === 'automatic'
+      ? result.mode
+      : status === 'error' ? state.update.mode : 'automatic';
+    setUpdateState({
+      status,
+      version: result?.version || '',
+      latestVersion: result?.version || '',
+      mode,
+      percent: 0
+    });
+  }
+
+  function applyUpdateEvent(event) {
+    if (!event || typeof event !== 'object') return;
+    if (event.type === 'downloading') {
+      setUpdateState({ status: 'downloading', percent: 0 });
+    } else if (event.type === 'progress') {
+      setUpdateState({ status: 'downloading', percent: updateUi.normalizePercent(event.percent) });
+    } else if (event.type === 'installing') {
+      setUpdateState({ status: 'installing', percent: 100 });
+    } else if (event.type === 'error') {
+      setUpdateState({ status: 'error' });
+    } else {
+      return;
+    }
+    const dialog = $('update-dialog');
+    if ((event.type === 'downloading' || event.type === 'installing') && dialog && !dialog.open) dialog.showModal();
+  }
+
+  function checkUpdates() {
+    if (state.updateCheckPromise) return state.updateCheckPromise;
+    const button = $('check-update');
+    if (button) button.disabled = true;
+    showUpdateDialog({ status: 'checking', percent: 0 });
+    let request;
+    try {
+      request = desktop.updates.check();
+    } catch {
+      request = Promise.reject(new Error('update-check-failed'));
+    }
+    state.updateCheckPromise = Promise.resolve(request)
+      .then((result) => {
+        applyUpdateResult(result);
+        return result;
+      })
+      .catch(() => {
+        const result = { status: 'error' };
+        applyUpdateResult(result);
+        return result;
+      })
+      .finally(() => {
+        state.updateCheckPromise = null;
+        if (button) button.disabled = false;
+      });
+    return state.updateCheckPromise;
+  }
+
+  function closeUpdateDialog() {
+    const dialog = $('update-dialog');
+    if (!dialog || updateIsBusy()) return;
+    dialog.close();
+  }
+
+  function installUpdate() {
+    if (state.updateInstallPromise) return state.updateInstallPromise;
+    const mode = state.update.mode;
+    if (mode === 'automatic') setUpdateState({ status: 'downloading', percent: 0 });
+    const request = Promise.resolve().then(() => desktop.updates.install());
+    state.updateInstallPromise = request
+      .then((result) => {
+        if (result?.status === 'error') setUpdateState({ status: 'error' });
+        else if (mode === 'manual') closeUpdateDialog();
+        else setUpdateState({ status: 'installing', percent: 100 });
+        return result;
+      })
+      .catch(() => {
+        setUpdateState({ status: 'error' });
+        return { status: 'error' };
+      })
+      .finally(() => { state.updateInstallPromise = null; });
+    return state.updateInstallPromise;
+  }
+
+  function openInstaller() {
+    if (state.updateInstallerPromise) return state.updateInstallerPromise;
+    $('update-fallback').disabled = true;
+    state.updateInstallerPromise = Promise.resolve()
+      .then(() => desktop.updates.openInstaller())
+      .then((result) => {
+        if (result?.status === 'error') setUpdateState({ status: 'error' });
+        return result;
+      })
+      .catch(() => {
+        setUpdateState({ status: 'error' });
+        return { status: 'error' };
+      })
+      .finally(() => {
+        state.updateInstallerPromise = null;
+        renderUpdateDialog();
+      });
+    return state.updateInstallerPromise;
+  }
+
+  function openReleasePage() {
+    if (state.updateReleasePromise) return state.updateReleasePromise;
+    state.updateReleasePromise = Promise.resolve()
+      .then(() => desktop.updates.openRelease())
+      .then((result) => {
+        if (result?.status === 'error') setUpdateState({ status: 'error' });
+        return result;
+      })
+      .catch(() => {
+        setUpdateState({ status: 'error' });
+        return { status: 'error' };
+      })
+      .finally(() => {
+        state.updateReleasePromise = null;
+        renderUpdateDialog();
+      });
+    return state.updateReleasePromise;
+  }
+
+  function updateAction(event) {
+    const button = event.target.closest('button[data-update-action]');
+    if (!button || button.disabled) return;
+    const action = button.dataset.updateAction;
+    if (action === 'close') closeUpdateDialog();
+    else if (action === 'check') void checkUpdates();
+    else if (action === 'install') void installUpdate();
+    else if (action === 'open-installer') void openInstaller();
+    else if (action === 'open-release') void openReleasePage();
+  }
+
+  function setupUpdateDialog() {
+    const dialog = $('update-dialog');
+    if (!dialog) return;
+    dialog.addEventListener('cancel', (event) => {
+      if (updateIsBusy()) event.preventDefault();
+    });
+    dialog.addEventListener('click', updateAction);
+    $('update-close').addEventListener('click', (event) => {
+      if (updateIsBusy()) event.preventDefault();
+    });
+    if (typeof desktop.updates.onStatus === 'function') desktop.updates.onStatus(applyUpdateEvent);
+    if (typeof desktop.updates.onOpenRequested === 'function') desktop.updates.onOpenRequested(() => { void checkUpdates(); });
+  }
 
   function wireEvents() {
     setupPdfFrame();
+    setupUpdateDialog();
     setupTabs(); $('generate-btn').addEventListener('click',()=>void generateQr()); $('qr-text').addEventListener('keydown',(event)=>{if(event.key==='Enter')void generateQr();}); $('rotate-btn').addEventListener('click',()=>{state.qrAngle=(state.qrAngle+45)%360;$('angle-display').textContent=state.qrAngle;void generateQr();}); $('logo-upload').addEventListener('change',(event)=>void handleLogo(event)); $('no-logo-check').addEventListener('change',()=>{ $('logo-controls').style.opacity=$('no-logo-check').checked?'.45':'1'; $('rotate-btn').disabled=$('no-logo-check').checked; $('logo-upload').disabled=$('no-logo-check').checked; if (state.qr)void generateQr(); }); $('download-btn').addEventListener('click',()=>void saveQr()); $('save-asset-btn').addEventListener('click',()=>void saveQrAsset()); $('use-pdf-btn').addEventListener('click',()=>void useQrInPdf()); $('batch-generate-btn').addEventListener('click',()=>void generateBatchZip()); $('refresh-assets').addEventListener('click',()=>void loadAssets()); $('asset-list').addEventListener('click',(event)=>void assetAction(event)); $('check-update').addEventListener('click',()=>void checkUpdates()); $('release-link').addEventListener('click',async()=>{try{await desktop.updates.openRelease();}catch{setStatus('qr-status','Releaseページを開けません。',true);}});
     $('pdf-file-list').addEventListener('click',(event)=>{const button=event.target.closest('button[data-pdf-action]');if(!button)return;const index=Number(button.dataset.index);if(button.dataset.pdfAction==='pdf-up')movePdfFile(index,-1);else if(button.dataset.pdfAction==='pdf-down')movePdfFile(index,1);else if(button.dataset.pdfAction==='pdf-preview-file'&&state.pdfFiles[index])previewPdf(state.pdfFiles[index].data);});
     $('pdf-file-list').addEventListener('dragstart',(event)=>{const item=event.target.closest('li[data-index]');if(!item)return;state.draggedPdfIndex=Number(item.dataset.index);event.dataTransfer?.setData('text/plain',item.dataset.index);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});
@@ -335,5 +541,9 @@
   }
 
   wireEvents();
-  desktop.app.getVersion().then((version) => { $('app-version').textContent=`v${version}`; }).catch(()=>{});
+  desktop.app.getVersion().then((version) => {
+    $('app-version').textContent=`v${version}`;
+    state.update.currentVersion = String(version || '');
+    renderUpdateDialog();
+  }).catch(()=>{});
 })();

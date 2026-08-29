@@ -129,23 +129,13 @@ function registerIpc() {
     requireTrustedSender(event);
     return updateService.check();
   });
-  ipcMain.handle('updates.download', async (event) => {
-    requireTrustedSender(event);
-    if (!app.isPackaged) return { status: 'disabled', reason: 'development' };
-    const { autoUpdater } = require('electron-updater');
-    await autoUpdater.downloadUpdate();
-    return { status: 'downloaded' };
-  });
   ipcMain.handle('updates.install', (event) => {
     requireTrustedSender(event);
-    if (!app.isPackaged) return { status: 'disabled', reason: 'development' };
-    const { autoUpdater } = require('electron-updater');
-    autoUpdater.quitAndInstall(false, true);
-    return { status: 'installing' };
+    return updateService.install();
   });
-  ipcMain.handle('updates.release-url', (event) => {
+  ipcMain.handle('updates.open-installer', (event) => {
     requireTrustedSender(event);
-    return RELEASE_URL;
+    return updateService.openInstaller();
   });
   ipcMain.handle('updates.open-release', async (event) => {
     requireTrustedSender(event);
@@ -155,6 +145,22 @@ function registerIpc() {
 }
 
 function configureMenu() {
+  const openUpdateDialog = () => {
+    if (!mainWindow || mainWindow.isDestroyed?.()) createApplicationWindow();
+    if (!mainWindow || mainWindow.isDestroyed?.()) return;
+    if (mainWindow.isMinimized?.()) mainWindow.restore?.();
+    mainWindow.show?.();
+    mainWindow.focus?.();
+    const sendRequest = () => {
+      if (!mainWindow || mainWindow.isDestroyed?.()) return;
+      mainWindow.webContents.send('updates.open-dialog');
+    };
+    if (mainWindow.webContents.isLoading?.() && typeof mainWindow.webContents.once === 'function') {
+      mainWindow.webContents.once('did-finish-load', sendRequest);
+    } else {
+      sendRequest();
+    }
+  };
   const template = [
     {
       label: 'ファイル',
@@ -163,7 +169,7 @@ function configureMenu() {
     {
       label: 'ヘルプ',
       submenu: [
-        { label: '更新を確認', click: () => updateService?.check() },
+        { label: '更新を確認', click: openUpdateDialog },
         { type: 'separator' },
         { label: `Kusunoki Desktop Tools v${app.getVersion()}`, enabled: false },
         { label: 'Releaseページを開く', click: () => shell.openExternal(RELEASE_URL) }
@@ -180,10 +186,13 @@ async function start() {
   await assetStore.init();
   const { autoUpdater } = require('electron-updater');
   updateService = createUpdateService({ app, autoUpdater, dialog, shell });
+  updateService.onEvent((event) => {
+    if (!mainWindow || mainWindow.isDestroyed?.()) return;
+    mainWindow.webContents.send('updates.status', event);
+  });
   registerIpc();
   configureMenu();
   createApplicationWindow();
-  if (app.isPackaged) setTimeout(() => updateService.check(), 2500);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createApplicationWindow();
   });

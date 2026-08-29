@@ -77,7 +77,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "Kusunoki-Desktop-Tools-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
