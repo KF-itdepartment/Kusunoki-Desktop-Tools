@@ -94,6 +94,7 @@
           ]
         }
       ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "identity": null
     },
     "linux": {

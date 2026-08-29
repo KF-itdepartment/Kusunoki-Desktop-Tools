@@ -94,7 +94,23 @@ jobs:
         run: npm run pack -- --publish never --win nsis --x64
       - name: Package macOS x64 and arm64 DMG
         if: matrix.name == 'macos-x64-arm64'
-        run: npm run pack -- --publish never --mac dmg
+        run: npm run pack -- --publish never --mac dmg --x64 --arm64
+      - name: Verify macOS architecture-specific DMGs and metadata
+        if: matrix.name == 'macos-x64-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          x64_dmgs=(dist/*-x64.dmg)
+          arm64_dmgs=(dist/*-arm64.dmg)
+          test "${#x64_dmgs[@]}" -eq 1
+          test "${#arm64_dmgs[@]}" -eq 1
+          test -s "${x64_dmgs[0]}"
+          test -s "${arm64_dmgs[0]}"
+          test "$(basename "${x64_dmgs[0]}")" != "$(basename "${arm64_dmgs[0]}")"
+          test -s dist/latest-mac.yml
+          grep -F -- "$(basename "${x64_dmgs[0]}")" dist/latest-mac.yml
+          grep -F -- "$(basename "${arm64_dmgs[0]}")" dist/latest-mac.yml
       - name: Package Linux x64 AppImage
         if: matrix.name == 'linux-x64'
         run: npm run pack -- --publish never --linux AppImage --x64
