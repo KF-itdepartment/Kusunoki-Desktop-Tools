@@ -9,8 +9,15 @@
   const state = {
     view: 'qr-view',
     qr: null,
+    qrMode: 'online',
+    qrModeReason: '',
+    qrBusy: false,
     qrLogo: null,
     qrAngle: 315,
+    batchInputMode: 'legacy',
+    batchRunning: false,
+    batchFileLoading: false,
+    csvReadToken: 0,
     pdfFiles: [],
     pendingWatermark: null,
     watermarkFile: null,
@@ -28,11 +35,62 @@
   const $ = (id) => document.getElementById(id);
   const navButtons = [...document.querySelectorAll('.nav-button')];
   const views = [...document.querySelectorAll('.view')];
+  const qrModeButtons = [...document.querySelectorAll('[data-qr-mode]')];
 
   function setStatus(id, message, error = false) {
     const element = $(id);
     element.textContent = message || '';
     element.classList.toggle('error', error);
+  }
+
+  function renderQrMode() {
+    qrModeButtons.forEach((button) => {
+      const selected = button.dataset.qrMode === state.qrMode;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.disabled = state.qrBusy || state.batchRunning;
+    });
+    const status = $('qr-mode-state');
+    if (!status) return;
+    status.textContent = state.qrModeReason
+      ? `オフライン（${state.qrModeReason}）`
+      : state.qrMode === 'online' ? 'オンラインAPIを使用' : 'ローカル生成を使用';
+  }
+
+  function setQrMode(mode, reason = '') {
+    if (mode !== 'online' && mode !== 'offline') return false;
+    state.qrMode = mode;
+    state.qrModeReason = mode === 'offline' ? String(reason || '') : '';
+    renderQrMode();
+    return true;
+  }
+
+  function selectQrMode(mode) {
+    if (state.qrBusy || state.batchRunning) return;
+    if (!setQrMode(mode)) return;
+    const message = mode === 'online'
+      ? 'オンラインAPIで生成します。'
+      : 'ローカルで生成します。通信は行いません。';
+    setStatus('qr-status', message);
+    setStatus('batch-status', message);
+  }
+
+  function onlineFailureReason(error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+    if (code === 'timeout') return 'タイムアウト';
+    if (code === 'http') return Number.isFinite(Number(error?.status)) ? `HTTP ${Number(error.status)}` : 'HTTPエラー';
+    if (code === 'content-type') return '応答形式不正';
+    if (code === 'empty') return '空の応答';
+    if (code === 'too-large' || code === 'request-too-large') return '応答サイズ超過';
+    if (code === 'invalid-svg') return 'SVG不正';
+    if (/タイムアウト/u.test(message)) return 'タイムアウト';
+    if (/HTTP\s+\d+/iu.test(message)) return `HTTP ${message.match(/HTTP\s+(\d+)/iu)[1]}`;
+    if (/応答形式/u.test(message)) return '応答形式不正';
+    if (/空の画像|空の応答/u.test(message)) return '空の応答';
+    if (/大きすぎ|サイズ超過/u.test(message)) return '応答サイズ超過';
+    if (/壊れたSVG|SVG.*不正/u.test(message)) return 'SVG不正';
+    return '接続エラー';
   }
 
   function setView(viewId) {
@@ -110,14 +168,39 @@
   }
 
   async function generateQr() {
+    if (state.qrBusy || state.batchRunning) return;
     const text = $('qr-text').value.trim();
     if (!text) { setStatus('qr-status', '文字列を入力してください。', true); return; }
     const button = $('generate-btn'); button.disabled = true; setStatus('qr-status', '生成中…');
+    state.qrBusy = true;
+    renderQrMode();
+    const payload = { text, logoDataUrl: $('no-logo-check').checked ? null : state.qrLogo, angle: state.qrAngle, noLogo: $('no-logo-check').checked };
+    const requestedMode = state.qrMode;
     try {
-      const result = await desktop.qr.generate({ text, logoDataUrl: $('no-logo-check').checked ? null : state.qrLogo, angle: state.qrAngle, noLogo: $('no-logo-check').checked });
-      setQrResult(result); setStatus('qr-status', 'ローカルで生成しました。');
-    } catch (error) { setStatus('qr-status', error instanceof Error ? error.message : 'QR生成に失敗しました。', true); }
-    finally { button.disabled = false; }
+      const result = await desktop.qr.generate({ ...payload, mode: requestedMode });
+      setQrResult(result);
+      setStatus('qr-status', requestedMode === 'online' ? 'オンラインAPIで生成しました。' : 'ローカルで生成しました。');
+    } catch (error) {
+      if (requestedMode !== 'online') {
+        setStatus('qr-status', error instanceof Error ? error.message : 'QR生成に失敗しました。', true);
+      } else {
+        const reason = onlineFailureReason(error);
+        setQrMode('offline', `オンラインAPI失敗: ${reason}`);
+        try {
+          const result = await desktop.qr.generate({ ...payload, mode: 'offline' });
+          setQrResult(result);
+          setStatus('qr-status', `オンラインAPIに失敗したため、ローカルで再生成しました。以降はオフラインです（${reason}）。`);
+        } catch (fallbackError) {
+          setStatus('qr-status', fallbackError instanceof Error ? fallbackError.message : 'ローカルQR生成に失敗しました。', true);
+        }
+      }
+    }
+    finally {
+      state.qrBusy = false;
+      button.disabled = false;
+      renderQrMode();
+      updateBatchControls();
+    }
   }
 
   async function selectedQrBytes() {
@@ -209,29 +292,163 @@
     element.append(list); element.hidden = false;
   }
 
-  async function generateBatchZip() {
-    const parsed = generated.qr.batch.parseBatchInput($('batch-urls').value, $('batch-names').value);
-    renderBatchErrors(parsed.errors);
-    if (!parsed.items.length && !parsed.errors.length) { renderBatchErrors([{ line:null, reason:'生成するURLを1件以上入力してください。' }]); return; }
-    if (!parsed.valid) { setStatus('batch-status', '入力を確認してください。', true); return; }
-    const items = generated.qr.batch.assignBatchFileNames(parsed.items); const button = $('batch-generate-btn'); button.disabled = true; $('batch-progress').hidden = false; $('batch-progress').max = items.length; $('batch-progress').value = 0;
-    const files = []; const errors = []; let next = 0; let completed = 0;
-    async function worker() {
-      while (true) {
-        const index = next++; if (index >= items.length) return; const item = items[index];
-        try { const result = await desktop.qr.generate({ text:item.url, angle:315, noLogo:false }); files[index] = { name:item.fileName, data:await svgToPng(result.svg) }; }
-        catch (error) { errors.push({ line:item.line, reason:error instanceof Error ? error.message : '生成に失敗しました。' }); }
-        completed += 1; $('batch-progress').value = completed; setStatus('batch-status', `生成中… ${completed}/${items.length}件`);
+  function setBatchInputMode(mode) {
+    if (state.qrBusy || state.batchRunning || state.batchFileLoading) return;
+    state.batchInputMode = mode === 'csv' ? 'csv' : 'legacy';
+    const csvSelected = state.batchInputMode === 'csv';
+    document.querySelectorAll('input[name="batch-input-mode"]').forEach((input) => {
+      input.checked = input.value === state.batchInputMode;
+    });
+    const legacy = $('batch-legacy-panel');
+    const csv = $('batch-csv-panel');
+    if (legacy) {
+      legacy.hidden = csvSelected;
+      legacy.setAttribute('aria-hidden', String(csvSelected));
+    }
+    if (csv) {
+      csv.hidden = !csvSelected;
+      csv.setAttribute('aria-hidden', String(!csvSelected));
+    }
+    renderBatchErrors([]);
+    updateBatchControls();
+  }
+
+  function updateBatchControls() {
+    const unavailable = state.qrBusy || state.batchRunning || state.batchFileLoading;
+    const legacyInactive = unavailable || state.batchInputMode !== 'legacy';
+    const csvInactive = unavailable || state.batchInputMode !== 'csv';
+    document.querySelectorAll('input[name="batch-input-mode"]').forEach((input) => { input.disabled = unavailable; });
+    const batchPanel = $('qr-batch');
+    const button = $('batch-generate-btn');
+    if (button) {
+      button.disabled = unavailable;
+      button.setAttribute('aria-busy', String(unavailable));
+      button.textContent = state.batchRunning ? '生成中…' : state.batchFileLoading ? 'CSV読込中…' : '一括生成してZIPを保存';
+    }
+    const urls = $('batch-urls');
+    const names = $('batch-names');
+    const csv = $('batch-csv');
+    const csvFile = $('batch-csv-file');
+    if (urls) urls.disabled = legacyInactive;
+    if (names) names.disabled = legacyInactive;
+    if (csv) csv.disabled = csvInactive;
+    if (csvFile) {
+      csvFile.disabled = csvInactive;
+      csvFile.setAttribute('aria-busy', String(state.batchFileLoading));
+    }
+    if (batchPanel) batchPanel.setAttribute('aria-busy', String(unavailable));
+  }
+
+  async function loadBatchCsvFile(file) {
+    if (state.qrBusy || state.batchRunning) return;
+    const requestToken = ++state.csvReadToken;
+    state.batchFileLoading = true;
+    renderBatchErrors([]);
+    setStatus('batch-status', 'CSVファイルを読み込み中…');
+    updateBatchControls();
+    try {
+      const bytes = await file.arrayBuffer();
+      const decoded = generated.qr.batch.decodeCsvBytes(bytes);
+      if (requestToken !== state.csvReadToken) return;
+      $('batch-csv').value = decoded;
+      setStatus('batch-status', 'CSVファイルを読み込みました。内容を確認して生成してください。');
+    } catch (error) {
+      if (requestToken !== state.csvReadToken) return;
+      const reason = error instanceof Error ? error.message : 'CSVファイルの読み込みに失敗しました。';
+      renderBatchErrors([{ line: null, reason }]);
+      setStatus('batch-status', 'CSVファイルを読み込めません。', true);
+    } finally {
+      if (requestToken === state.csvReadToken) {
+        state.batchFileLoading = false;
+        updateBatchControls();
       }
     }
+  }
+
+  function parseCurrentBatchInput() {
+    return state.batchInputMode === 'csv'
+      ? generated.qr.batch.parseBatchCsv($('batch-csv').value)
+      : generated.qr.batch.parseBatchInput($('batch-urls').value, $('batch-names').value);
+  }
+
+  async function generateBatchPngs(items, mode, onProgress) {
+    const files = new Array(items.length);
+    const errors = [];
+    let nextIndex = 0;
+    let completed = 0;
+    async function worker() {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        const item = items[index];
+        try {
+          const result = await desktop.qr.generate({ text: item.url, angle: 315, noLogo: false, mode });
+          files[index] = { name: item.fileName, data: await svgToPng(result.svg) };
+        } catch (error) {
+          errors.push({ line: item.line, reason: error instanceof Error ? error.message : '生成に失敗しました。', cause: error });
+        } finally {
+          completed += 1;
+          onProgress?.(completed, items.length);
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, items.length) }, () => worker()));
+    errors.sort((a, b) => (a.line ?? 999999) - (b.line ?? 999999));
+    return { files: files.filter(Boolean), errors, completed };
+  }
+
+  async function generateBatchZip() {
+    if (state.qrBusy || state.batchRunning || state.batchFileLoading) return;
+    const parsed = parseCurrentBatchInput();
+    if (!parsed.items.length && !parsed.errors.length) {
+      renderBatchErrors([{ line: null, reason: '生成するURLを1件以上入力してください。' }]);
+      setStatus('batch-status', '入力を確認してください。', true);
+      return;
+    }
+    if (!parsed.valid) {
+      renderBatchErrors(parsed.errors);
+      setStatus('batch-status', '入力を確認してください。', true);
+      return;
+    }
+    const items = generated.qr.batch.assignBatchFileNames(parsed.items);
+    const requestedMode = state.qrMode;
+    state.batchRunning = true;
+    state.qrBusy = true;
+    renderQrMode();
+    renderBatchErrors([]);
+    const progress = $('batch-progress');
+    if (progress) { progress.hidden = false; progress.max = items.length; progress.value = 0; }
+    updateBatchControls();
+    setStatus('batch-status', `生成中… 0/${items.length}件`);
+    const updateProgress = (completed, total) => {
+      if (progress) progress.value = completed;
+      setStatus('batch-status', `生成中… ${completed}/${total}件`);
+    };
     try {
-      await Promise.all(Array.from({ length:Math.min(4, items.length) }, () => worker()));
-      if (errors.length) { errors.sort((a,b)=>(a.line ?? 999999)-(b.line ?? 999999)); renderBatchErrors(errors); setStatus('batch-status', '生成に失敗したためZIPは作成しません。', true); return; }
+      let result = await generateBatchPngs(items, requestedMode, updateProgress);
+      let fallbackUsed = false;
+      if (result.errors.length && requestedMode === 'online') {
+        const reason = onlineFailureReason(result.errors[0]?.cause);
+        setQrMode('offline', `オンラインAPI失敗: ${reason}`);
+        fallbackUsed = true;
+        if (progress) progress.value = 0;
+        setStatus('batch-status', 'オンラインAPIに失敗したため、全件をローカルで再生成中…');
+        result = await generateBatchPngs(items, 'offline', updateProgress);
+      }
+      if (result.errors.length) {
+        renderBatchErrors(result.errors);
+        setStatus('batch-status', '生成に失敗したためZIPは作成しません。', true);
+        return;
+      }
       if (!window.JSZip) throw new Error('ZIPライブラリを読み込めません。');
-      const zip = new window.JSZip(); files.forEach((file) => zip.file(file.name, file.data));
-      const blob = await zip.generateAsync({ type:'blob', compression:'STORE' }); downloadBytes(blob, `qr_codes_${formatTimestamp(new Date())}.zip`, 'application/zip'); setStatus('batch-status', `${files.length}件をZIPで保存しました。`);
+      const zip = new window.JSZip(); result.files.forEach((file) => zip.file(file.name, file.data));
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBytes(blob, `qr_codes_${formatTimestamp(new Date())}.zip`, 'application/zip');
+      const prefix = fallbackUsed ? 'オンラインAPI失敗後、全件をローカルで生成し' : requestedMode === 'online' ? 'オンラインAPIで' : 'ローカルで';
+      setStatus('batch-status', `${prefix}${result.files.length}件をZIPで保存しました。`);
     } catch (error) { setStatus('batch-status', error instanceof Error ? error.message : '一括生成に失敗しました。', true); }
-    finally { button.disabled = false; }
+    finally { state.batchRunning = false; state.qrBusy = false; updateBatchControls(); renderQrMode(); }
   }
 
   function formatTimestamp(date) { const pad=(value)=>String(value).padStart(2,'0'); return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`; }
@@ -504,6 +721,23 @@
     return state.updateReleasePromise;
   }
 
+  function setupQrMode() {
+    qrModeButtons.forEach((button) => button.addEventListener('click', () => selectQrMode(button.dataset.qrMode)));
+    renderQrMode();
+  }
+
+  function setupBatchInput() {
+    document.querySelectorAll('input[name="batch-input-mode"]').forEach((input) => {
+      input.addEventListener('change', () => setBatchInputMode(input.value));
+    });
+    $('batch-csv-file').addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      if (!file || state.batchRunning) return;
+      void loadBatchCsvFile(file);
+    });
+    setBatchInputMode('legacy');
+  }
+
   function updateAction(event) {
     const button = event.target.closest('button[data-update-action]');
     if (!button || button.disabled) return;
@@ -532,6 +766,7 @@
   function wireEvents() {
     setupPdfFrame();
     setupUpdateDialog();
+    setupQrMode(); setupBatchInput();
     setupTabs(); $('generate-btn').addEventListener('click',()=>void generateQr()); $('qr-text').addEventListener('keydown',(event)=>{if(event.key==='Enter')void generateQr();}); $('rotate-btn').addEventListener('click',()=>{state.qrAngle=(state.qrAngle+45)%360;$('angle-display').textContent=state.qrAngle;void generateQr();}); $('logo-upload').addEventListener('change',(event)=>void handleLogo(event)); $('no-logo-check').addEventListener('change',()=>{ $('logo-controls').style.opacity=$('no-logo-check').checked?'.45':'1'; $('rotate-btn').disabled=$('no-logo-check').checked; $('logo-upload').disabled=$('no-logo-check').checked; if (state.qr)void generateQr(); }); $('download-btn').addEventListener('click',()=>void saveQr()); $('save-asset-btn').addEventListener('click',()=>void saveQrAsset()); $('use-pdf-btn').addEventListener('click',()=>void useQrInPdf()); $('batch-generate-btn').addEventListener('click',()=>void generateBatchZip()); $('refresh-assets').addEventListener('click',()=>void loadAssets()); $('asset-list').addEventListener('click',(event)=>void assetAction(event)); $('check-update').addEventListener('click',()=>void checkUpdates()); $('release-link').addEventListener('click',async()=>{try{await desktop.updates.openRelease();}catch{setStatus('qr-status','Releaseページを開けません。',true);}});
     $('pdf-file-list').addEventListener('click',(event)=>{const button=event.target.closest('button[data-pdf-action]');if(!button)return;const index=Number(button.dataset.index);if(button.dataset.pdfAction==='pdf-up')movePdfFile(index,-1);else if(button.dataset.pdfAction==='pdf-down')movePdfFile(index,1);else if(button.dataset.pdfAction==='pdf-preview-file'&&state.pdfFiles[index])previewPdf(state.pdfFiles[index].data);});
     $('pdf-file-list').addEventListener('dragstart',(event)=>{const item=event.target.closest('li[data-index]');if(!item)return;state.draggedPdfIndex=Number(item.dataset.index);event.dataTransfer?.setData('text/plain',item.dataset.index);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});

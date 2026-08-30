@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } = require('electron');
 const { AssetStore } = require('./asset-store');
-const { generateQr } = require('./qr-service');
+const { ALLOWED_QR_MODES, QR_MODES, generateQrByMode } = require('./qr-service');
 const { processPdf } = require('./pdf-service');
 const { createUpdateService } = require('./update-service');
 
@@ -38,6 +38,12 @@ function requireTrustedSender(event) {
 function assertObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('入力形式が不正です。');
   return value;
+}
+
+function assertQrMode(value) {
+  const mode = value ?? QR_MODES.OFFLINE;
+  if (!ALLOWED_QR_MODES.has(mode)) throw new TypeError('QR生成モードが不正です。');
+  return mode;
 }
 
 function installSecurityPolicy() {
@@ -98,7 +104,8 @@ function registerIpc() {
   ipcMain.handle('qr.generate', async (event, input) => {
     requireTrustedSender(event);
     const payload = assertObject(input);
-    return generateQr(payload, path.resolve(__dirname, '..'));
+    const mode = assertQrMode(payload.mode);
+    return generateQrByMode({ ...payload, mode }, path.resolve(__dirname, '..'));
   });
   ipcMain.handle('assets.list', async (event) => {
     requireTrustedSender(event);
@@ -212,6 +219,7 @@ module.exports = {
   RELEASE_URL,
   RENDERER_DIRECTORY,
   assertObject,
+  assertQrMode,
   isTrustedSender,
   installSecurityPolicy
 };

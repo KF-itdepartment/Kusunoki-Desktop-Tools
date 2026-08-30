@@ -201,7 +201,7 @@ if (qrSourceReady) {
   const batchSourcePath = path.join(generated, 'qr', 'batch-utils.mjs');
   const batchSource = fs.readFileSync(batchSourcePath, 'utf8');
   const batchBody = batchSource.replace(/\bexport\s+(?=(?:const|function)\b)/gu, '');
-  batchClassic = `'use strict';\n\n// Generated from vendor/qr-generator/public/batch-utils.mjs. Do not edit by hand.\n(function exposeGeneratedBatch(global) {\n${batchBody}\n  global.BatchUtils = Object.freeze({\n    MAX_BATCH_ITEMS,\n    MAX_FILENAME_LENGTH,\n    splitInputLines,\n    validateHttpUrl,\n    isValidHttpUrl,\n    parseBatchInput,\n    sanitizePngFileName,\n    sanitisePngFileName,\n    sanitizeFileName,\n    createBatchFileNames,\n    makeUniqueFileNames,\n    assignBatchFileNames\n  });\n})(window);\n`;
+  batchClassic = `'use strict';\n\n// Generated from vendor/qr-generator/public/batch-utils.mjs. Do not edit by hand.\n(function exposeGeneratedBatch(global) {\n${batchBody}\n  global.BatchUtils = Object.freeze({\n    MAX_BATCH_ITEMS,\n    MAX_FILENAME_LENGTH,\n    splitInputLines,\n    validateHttpUrl,\n    isValidHttpUrl,\n    parseBatchInput,\n    parseBatchCsv,\n    decodeCsvBytes,\n    sanitizePngFileName,\n    sanitisePngFileName,\n    sanitizeFileName,\n    createBatchFileNames,\n    makeUniqueFileNames,\n    assignBatchFileNames\n  });\n})(window);\n`;
   writeUtf8(batchClassicPath, batchClassic);
   qrManifest['batch-utils.js'] = {
     source: path.relative(root, batchOriginalPath).replaceAll(path.sep, '/'),

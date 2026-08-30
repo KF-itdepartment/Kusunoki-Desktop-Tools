@@ -3,7 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { generateQr, parseDataUri } = require('../electron/qr-service');
+const {
+  ONLINE_API_URL,
+  OnlineQrError,
+  buildOnlineRequestUrl,
+  generateQr,
+  generateQrByMode,
+  generateQrOnline,
+  parseDataUri
+} = require('../electron/qr-service');
 
 const onePixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
@@ -41,4 +49,67 @@ test('default QR logo falls back to the committed generated upstream copy', asyn
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+function svgResponse(svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>', contentType = 'image/svg+xml') {
+  return {
+    status: 200,
+    headers: new Headers({ 'content-type': contentType }),
+    text: async () => svg
+  };
+}
+
+test('online QR uses the fixed API and normalises a valid SVG response', async () => {
+  let request;
+  const result = await generateQrOnline({ text: 'https://example.com/a?x=1', noLogo: true, angle: 45 }, process.cwd(), {
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return svgResponse();
+    }
+  });
+  assert.equal(result.mimeType, 'image/svg+xml');
+  assert.equal(result.text, 'https://example.com/a?x=1');
+  assert.equal(result.svg, '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  assert.ok(request.url.startsWith(ONLINE_API_URL));
+  assert.match(request.url, /[?&]text=https%3A%2F%2Fexample\.com%2Fa%3Fx%3D1/u);
+  assert.match(request.url, /[?&]noLogo=true/u);
+  assert.equal(request.init.headers.Accept, 'image/svg+xml');
+  assert.equal(buildOnlineRequestUrl({ text: 'x' }).origin, new URL(ONLINE_API_URL).origin);
+});
+
+test('online QR rejects network, HTTP, content-type, empty, oversized, and broken responses safely', async () => {
+  const cases = [
+    { name: 'network', fetchImpl: async () => { throw new Error('secret socket details'); }, code: 'network' },
+    { name: 'http', fetchImpl: async () => ({ status: 503, headers: new Headers({ 'content-type': 'text/plain' }), text: async () => 'secret body' }), code: 'http' },
+    { name: 'content-type', fetchImpl: async () => svgResponse('<svg></svg>', 'text/html'), code: 'content-type' },
+    { name: 'empty', fetchImpl: async () => svgResponse(''), code: 'empty' },
+    { name: 'broken svg', fetchImpl: async () => svgResponse('<svg>'), code: 'invalid-svg' },
+    { name: 'oversized', fetchImpl: async () => svgResponse(`<svg>${'x'.repeat(2 * 1024 * 1024)}</svg>`), code: 'too-large' }
+  ];
+  for (const entry of cases) {
+    await assert.rejects(
+      () => generateQrOnline({ text: 'x' }, process.cwd(), { fetchImpl: entry.fetchImpl }),
+      (error) => {
+        assert.ok(error instanceof OnlineQrError);
+        assert.equal(error.code, entry.code);
+        assert.doesNotMatch(error.message, /secret/u);
+        return true;
+      },
+      entry.name
+    );
+  }
+});
+
+test('online timeout is bounded and offline mode never invokes fetch', async () => {
+  await assert.rejects(
+    () => generateQrOnline({ text: 'x' }, process.cwd(), { timeoutMs: 5, fetchImpl: () => new Promise(() => {}) }),
+    (error) => error instanceof OnlineQrError && error.code === 'timeout'
+  );
+  let called = false;
+  const result = await generateQrByMode({ text: 'offline-check', mode: 'offline', noLogo: true }, process.cwd(), {
+    fetchImpl: async () => { called = true; return svgResponse(); }
+  });
+  assert.equal(called, false);
+  assert.match(result.svg, /<svg/iu);
+  await assert.rejects(() => generateQrByMode({ text: 'x', mode: 'invalid' }, process.cwd()), /モード/u);
 });

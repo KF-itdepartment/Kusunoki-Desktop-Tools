@@ -32,7 +32,7 @@
     "batch-utils.js": {
       "source": "vendor/qr-generator/public/batch-utils.mjs",
       "sha256": "93d69fbd66a38dce4466b201a804dd3d1efb5fbd0d69e6b4b66d360ae7a38705",
-      "generatedSha256": "60d2951036772ce0ce76d15eff1d2638cf8b5607cdcee16161825966d2de8f5b"
+      "generatedSha256": "f7345daca28a776998ae662fb35f4f480f2c3ecc2808c44c9421cba3516e0b58"
     }
   },
   "pdf": {

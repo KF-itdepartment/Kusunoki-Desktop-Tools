@@ -477,6 +477,8 @@ function assignBatchFileNames(items) {
     validateHttpUrl,
     isValidHttpUrl,
     parseBatchInput,
+    parseBatchCsv,
+    decodeCsvBytes,
     sanitizePngFileName,
     sanitisePngFileName,
     sanitizeFileName,

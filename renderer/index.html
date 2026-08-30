@@ -9,18 +9,25 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">K</span><span>Kusunoki Desktop Tools</span><small id="app-version">v1.0.0</small></div>
+    <div class="brand"><span class="brand-mark">K</span><span class="brand-title">Kusunoki Desktop Tools</span><small id="app-version">v1.0.0</small></div>
     <nav class="main-nav" aria-label="アプリ切替">
-      <button class="nav-button active" data-view="qr-view">QRコード</button>
-      <button class="nav-button" data-view="pdf-view">PDFエディター</button>
-      <button class="nav-button" data-view="assets-view">素材トレイ</button>
+      <button class="nav-button active" type="button" data-view="qr-view">QRコード</button>
+      <button class="nav-button" type="button" data-view="pdf-view">PDFエディター</button>
+      <button class="nav-button" type="button" data-view="assets-view">素材トレイ</button>
+      <button class="nav-button" type="button" disabled aria-disabled="true" tabindex="-1">URL短縮（準備中）</button>
     </nav>
-    <div class="top-actions"><button id="check-update" class="quiet-button">更新を確認</button></div>
+    <div class="qr-mode-switch" role="group" aria-label="QRコード生成方式">
+      <span class="qr-mode-label">QR通信</span>
+      <button id="qr-online-mode" class="mode-button active" type="button" data-qr-mode="online" aria-pressed="true">オンライン</button>
+      <button id="qr-offline-mode" class="mode-button" type="button" data-qr-mode="offline" aria-pressed="false">オフライン</button>
+      <span id="qr-mode-state" class="qr-mode-state" role="status" aria-live="polite">オンラインAPIを使用</span>
+    </div>
+    <div class="top-actions"><button id="check-update" class="quiet-button" type="button">更新を確認</button></div>
   </header>
 
   <main class="page-wrap">
     <section id="qr-view" class="view active" aria-labelledby="qr-heading">
-      <div class="section-heading"><div><p class="eyebrow">OFFLINE WORKSPACE</p><h1 id="qr-heading">QRコード生成</h1><p>文字列やURLから、ロゴ付きのQRコードをローカルで作成します。</p></div></div>
+      <div class="section-heading"><div><p class="eyebrow">HYBRID QR WORKSPACE</p><h1 id="qr-heading">QRコード生成</h1><p>文字列やURLから、オンラインAPIまたはローカルでロゴ付きQRコードを作成します。</p></div></div>
       <div class="tabs" role="tablist" aria-label="QR生成モード">
         <button class="tab active" id="single-tab" role="tab" aria-selected="true" aria-controls="qr-single">1件生成</button>
         <button class="tab" id="batch-tab" role="tab" aria-selected="false" aria-controls="qr-batch">一括生成</button>
@@ -44,10 +51,25 @@
         <p id="qr-status" class="status" role="status" aria-live="polite"></p>
       </div>
       <div id="qr-batch" class="panel tab-panel" role="tabpanel" aria-labelledby="batch-tab" hidden>
-        <p class="help">URLとファイル名を同じ行に入力してください。URLは最大100件、生成とZIP作成はこの端末内で行います。</p>
-        <div class="form-grid two-column"><div class="form-field"><label for="batch-urls">URL（必須）</label><textarea id="batch-urls" rows="12" placeholder="https://example.com/first&#10;https://example.com/second" spellcheck="false"></textarea></div><div class="form-field"><label for="batch-names">ファイル名（任意）</label><textarea id="batch-names" rows="12" placeholder="first&#10;second.png" spellcheck="false"></textarea></div></div>
-        <div class="control-row"><button id="batch-generate-btn" class="primary">一括生成してZIPを保存</button><progress id="batch-progress" max="1" value="0" hidden></progress></div>
-        <p id="batch-status" class="status" role="status" aria-live="polite"></p><div id="batch-errors" class="error-box" hidden></div>
+        <p class="help">入力モードを選び、URLは最大100件まで指定してください。</p>
+        <fieldset class="batch-mode-selector" aria-describedby="batch-mode-help">
+          <legend>一括入力モード</legend>
+          <div class="batch-mode-options" role="radiogroup" aria-label="一括入力モード">
+            <label for="batch-mode-legacy"><input type="radio" id="batch-mode-legacy" name="batch-input-mode" value="legacy" checked>従来の2欄入力</label>
+            <label for="batch-mode-csv"><input type="radio" id="batch-mode-csv" name="batch-input-mode" value="csv">CSVを入力・アップロード</label>
+          </div>
+          <p id="batch-mode-help" class="batch-csv-example">CSVは「URL,ファイル名」の形式です。ファイル名は省略できます。</p>
+        </fieldset>
+        <div id="batch-legacy-panel" class="batch-mode-panel">
+          <div class="form-grid two-column"><div class="form-field"><label for="batch-urls">URL（必須）</label><textarea id="batch-urls" rows="12" placeholder="https://example.com/first&#10;https://example.com/second" spellcheck="false"></textarea></div><div class="form-field"><label for="batch-names">ファイル名（任意）</label><textarea id="batch-names" rows="12" placeholder="first&#10;second.png" spellcheck="false"></textarea></div></div>
+        </div>
+        <div id="batch-csv-panel" class="batch-mode-panel" hidden aria-hidden="true">
+          <div class="form-field"><label for="batch-csv">CSV（URL,ファイル名）</label><textarea id="batch-csv" rows="12" placeholder="URL,ファイル名&#10;https://example.com/first,first" spellcheck="false" aria-describedby="batch-csv-help"></textarea></div>
+          <p id="batch-csv-help" class="batch-csv-example">1列目はURL（必須）、2列目はファイル名（任意）。引用符で囲むとカンマや改行も使えます。</p>
+          <label class="file-button">CSVファイルを選択<input type="file" id="batch-csv-file" class="batch-csv-file" accept=".csv,text/csv"></label>
+        </div>
+        <div class="control-row"><button id="batch-generate-btn" class="primary" type="button">一括生成してZIPを保存</button><progress id="batch-progress" max="1" value="0" hidden aria-label="一括生成の進捗"></progress></div>
+        <p id="batch-status" class="status" role="status" aria-live="polite"></p><div id="batch-errors" class="error-box" role="alert" aria-live="assertive" hidden></div>
       </div>
     </section>
 
@@ -102,7 +124,7 @@
     </form>
   </dialog>
 
-  <footer class="footer"><span>外部ネットワーク通信なし（更新確認を除く）</span><button id="release-link" class="link-button">GitHub Release</button></footer>
+  <footer class="footer"><span>QRオンラインAPI・更新確認以外の外部ネットワーク通信なし</span><button id="release-link" class="link-button" type="button">GitHub Release</button></footer>
   <script src="./vendor/pdf.min.js"></script>
   <script src="./vendor/jszip.min.js"></script>
   <!-- batch-utils and this generated bridge are produced from the QR/PDF
