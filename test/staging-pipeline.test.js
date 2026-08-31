@@ -75,13 +75,21 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   const pdfDataUrl = fs.readFileSync(pdfDataUrlPath, 'utf8');
   const pdfHtml = fs.readFileSync(path.join(upstreamRoot, 'pdf', 'index.html'), 'utf8');
   const pdfScript = fs.readFileSync(path.join(upstreamRoot, 'pdf', 'script.js'), 'utf8');
+  const picHtml = fs.readFileSync(path.join(upstreamRoot, 'pic', 'index.html'), 'utf8');
+  const picStyles = fs.readFileSync(path.join(upstreamRoot, 'pic', 'styles.css'), 'utf8');
+  const picApp = fs.readFileSync(path.join(upstreamRoot, 'pic', 'app.js'), 'utf8');
+  const picSpec = fs.readFileSync(path.join(upstreamRoot, 'pic', 'SPECIFICATION.md'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
-  assert.equal(manifest.schema, 3);
+  assert.equal(manifest.schema, 4);
   assert.equal(manifest.upstream.qr['script.js'].source, 'vendor/qr-generator/public/script.js');
   assert.equal(manifest.upstream.pdf['script.js'].source, 'vendor/pdf-editor/script.js');
+  assert.equal(manifest.upstream.pic['index.html'].source, 'vendor/pic-editor/public/index.html');
+  assert.equal(manifest.upstream.pic['styles.css'].source, 'vendor/pic-editor/public/styles.css');
+  assert.equal(manifest.upstream.pic['app.js'].source, 'vendor/pic-editor/public/app.js');
+  assert.equal(manifest.upstream.pic['SPECIFICATION.md'].source, 'vendor/pic-editor/SPECIFICATION.md');
   const pdfScriptSourcePath = path.join(root, 'vendor', 'pdf-editor', 'script.js');
   const qrLogoSourcePath = path.join(root, 'vendor', 'qr-generator', 'public', 'logo.png');
   if (fs.existsSync(pdfScriptSourcePath)) {
@@ -93,6 +101,19 @@ test('vendor stage is reproducible and generated output is the renderer input', 
     assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(qrLogoSourcePath));
   } else {
     assert.equal(manifest.upstream.qr['logo.png'].sha256, sha256(path.join(upstreamRoot, 'qr', 'logo.png')));
+  }
+  const picSourceFiles = {
+    'index.html': path.join(root, 'vendor', 'pic-editor', 'public', 'index.html'),
+    'styles.css': path.join(root, 'vendor', 'pic-editor', 'public', 'styles.css'),
+    'app.js': path.join(root, 'vendor', 'pic-editor', 'public', 'app.js'),
+    'SPECIFICATION.md': path.join(root, 'vendor', 'pic-editor', 'SPECIFICATION.md')
+  };
+  for (const [name, sourcePath] of Object.entries(picSourceFiles)) {
+    const generatedPath = path.join(upstreamRoot, 'pic', name);
+    if (fs.existsSync(sourcePath)) {
+      assert.equal(manifest.upstream.pic[name].sha256, sha256(sourcePath));
+    }
+    assert.equal(manifest.upstream.pic[name].generatedSha256, sha256(generatedPath));
   }
   assert.equal(manifest.integration.qrBatch.file, 'renderer/generated/upstream/qr/batch-utils.js');
   assert.equal(manifest.integration.pdfFrameBridge.file, 'renderer/generated/upstream/pdf/pdf-frame-bridge.js');
@@ -123,6 +144,17 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.match(html, /pdf-editor-frame/);
   assert.match(html, /generated\/upstream\/pdf\/index\.html/);
   assert.doesNotMatch(html, /<iframe[^>]+id="pdf-editor-frame"[^>]+sandbox/iu);
+  assert.match(html, /id="pic-editor-frame"[^>]+src="\.\/generated\/upstream\/pic\/index\.html"[^>]+referrerpolicy="no-referrer"/u);
+  assert.doesNotMatch(html, /<iframe[^>]+id="pic-editor-frame"[^>]+sandbox/iu);
+  assert.match(picHtml, /connect-src 'none'/u);
+  assert.match(picHtml, /styles\.css/u);
+  assert.match(picHtml, /app\.js/u);
+  assert.match(picStyles, /\.canvas-stage/u);
+  assert.match(picApp, /editor-canvas/u);
+  assert.match(picSpec, /Pic Editor|pic-editor/u);
+  assert.doesNotMatch(picHtml, /<script[^>]+(?:https?:\/\/|cdn\.)/iu);
+  assert.doesNotMatch(picHtml, /<link[^>]+(?:https?:\/\/|cdn\.)/iu);
+  assert.doesNotMatch(picApp, /fetch\s*\(/iu);
   assert.match(html, /legacy-pdf-fallback" hidden/);
   assert.match(app, /generated\.qr\.batch\.parseBatchInput/);
   assert.doesNotMatch(app, /window\.BatchUtils/);
@@ -131,6 +163,7 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   assert.match(app, /generated\.pdfFrame\.createWatermarkMessage/);
   assert.match(app, /generated\.pdfFrame\.validateMessage/);
   assert.match(app, /setupPdfFrame/);
+  assert.match(app, /setupPicFrame/);
   assert.ok(packageJson.build.files.includes('renderer/**/*'));
   assert.doesNotMatch(packageJson.build.files.join('\n'), /^vendor\/\*\*\//mu);
 
@@ -175,6 +208,10 @@ test('vendor stage keeps committed generated artifacts when submodule checkout i
     path.join(generatedRoot, 'upstream', 'pdf', 'index.html'),
     path.join(generatedRoot, 'upstream', 'pdf', 'script.js'),
     path.join(generatedRoot, 'upstream-adapter.js'),
+    path.join(generatedRoot, 'upstream', 'pic', 'index.html'),
+    path.join(generatedRoot, 'upstream', 'pic', 'styles.css'),
+    path.join(generatedRoot, 'upstream', 'pic', 'app.js'),
+    path.join(generatedRoot, 'upstream', 'pic', 'SPECIFICATION.md'),
     path.join(root, 'renderer', 'vendor', 'MANIFEST.json')
   ];
   const before = files.map((file) => fs.readFileSync(file));
@@ -195,6 +232,10 @@ test('generated upstream files remain byte-for-byte stable across staging runs',
     path.join(generatedRoot, 'upstream', 'pdf', 'pdf-frame-bridge.js'),
     path.join(generatedRoot, 'upstream', 'pdf', 'pdf-data-url.js'),
     path.join(generatedRoot, 'upstream-adapter.js'),
+    path.join(generatedRoot, 'upstream', 'pic', 'index.html'),
+    path.join(generatedRoot, 'upstream', 'pic', 'styles.css'),
+    path.join(generatedRoot, 'upstream', 'pic', 'app.js'),
+    path.join(generatedRoot, 'upstream', 'pic', 'SPECIFICATION.md'),
     path.join(root, 'renderer', 'vendor', 'MANIFEST.json')
   ];
   const before = files.map((file) => fs.readFileSync(file));

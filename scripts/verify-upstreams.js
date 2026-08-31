@@ -24,6 +24,8 @@ const QR_SOURCE_FILES = [
 const QR_GENERATED_FILES = [...QR_SOURCE_FILES, 'batch-utils.js'];
 const PDF_SOURCE_FILES = ['index.html', 'script.js', 'SPECIFICATION.md'];
 const PDF_GENERATED_FILES = [...PDF_SOURCE_FILES, 'pdf-frame-bridge.js', 'pdf-data-url.js'];
+const PIC_SOURCE_FILES = ['index.html', 'styles.css', 'app.js', 'SPECIFICATION.md'];
+const PIC_GENERATED_FILES = [...PIC_SOURCE_FILES];
 const ANALYTICS_COMMIT = 'b65e77c8600572f5ddac80b4bc78dde4476b5380';
 const ANALYTICS_SOURCE_FILES = ['src/index.js'];
 const URL_GENERATED_FILES = ['config.js', 'adapter.js'];
@@ -62,7 +64,9 @@ function inspectSource(root, group, names) {
     ? path.join(root, 'vendor', 'qr-generator')
     : group === 'pdf'
       ? path.join(root, 'vendor', 'pdf-editor')
-      : path.join(root, 'vendor', 'analytics-url-generator');
+      : group === 'pic'
+        ? path.join(root, 'vendor', 'pic-editor')
+        : path.join(root, 'vendor', 'analytics-url-generator');
   const source = path.join(root, sourceDirectory(root, group));
   // A missing submodule directory is the normal public-CI fallback case. Some
   // gitlink checkouts still leave an empty directory behind, so an empty
@@ -130,7 +134,9 @@ function sourceDirectory(root, group) {
     ? path.join('vendor', 'qr-generator', 'public')
     : group === 'pdf'
       ? path.join('vendor', 'pdf-editor')
-      : path.join('vendor', 'analytics-url-generator');
+      : group === 'pic'
+        ? path.join('vendor', 'pic-editor')
+        : path.join('vendor', 'analytics-url-generator');
 }
 
 function generatedDirectory(group) {
@@ -203,6 +209,66 @@ function verifyGroup(root, manifest, group, sourceAvailable, errors) {
     }
     addHashCheck(errors, source, entry.sha256, `${label} source ${name}`);
   }
+}
+
+function stripRuntimeComments(value) {
+  return String(value || '')
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/(^|[^:\\])\/\/[^\r\n]*/gmu, '$1');
+}
+
+function checkPicRuntime(root, errors, label, files) {
+  let html;
+  let css;
+  let js;
+  try {
+    html = fs.readFileSync(files.html, 'utf8');
+    css = stripRuntimeComments(fs.readFileSync(files.css, 'utf8'));
+    js = stripRuntimeComments(fs.readFileSync(files.js, 'utf8'));
+  } catch (error) {
+    errors.push(`${label}: cannot inspect runtime files: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  if (!/connect-src\s+['"]none['"]/iu.test(html)) errors.push(`${label}: CSP must declare connect-src 'none'.`);
+  if (/<(?:script|link)\b[^>]+(?:https?:\/\/|\/\/|\bcdn\.)/iu.test(html)) errors.push(`${label}: HTML contains a remote script or stylesheet reference.`);
+  if (/\bfetch\s*\(|\bimport\s*\(/iu.test(`${css}\n${js}`)) errors.push(`${label}: runtime must not use fetch() or dynamic import().`);
+  const runtimeCode = `${css}\n${js}`.replace(/https?:\/\/(?:www\.)?w3\.org\b[^\s'"`]*/giu, '');
+  if (/https?:\/\/|\bcdn\./iu.test(runtimeCode)) errors.push(`${label}: runtime contains an external URL or CDN reference.`);
+}
+
+function verifyPic(root, manifest, sourceAvailable, errors) {
+  const entries = manifest.upstream?.pic;
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    errors.push('PIC upstream manifest section is missing.');
+    return;
+  }
+  const generatedRoot = path.join(root, generatedDirectory('pic'));
+  for (const name of PIC_GENERATED_FILES) {
+    const entry = entryObject(manifest, 'pic', name, errors);
+    if (!entry) continue;
+    addHashCheck(errors, path.join(generatedRoot, name), entry.generatedSha256 || entry.sha256, `Pic generated ${name}`);
+    if (!sourceAvailable) continue;
+    const sourceRelative = name === 'SPECIFICATION.md'
+      ? path.join('vendor', 'pic-editor', name)
+      : path.join('vendor', 'pic-editor', 'public', name);
+    if (entry.source !== sourceRelative.replaceAll(path.sep, '/')) {
+      errors.push(`Pic ${name}: manifest source path is invalid.`);
+      continue;
+    }
+    let source;
+    try {
+      source = resolveManifestPath(root, entry.source, `Pic ${name} source`);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
+    addHashCheck(errors, source, entry.sha256, `Pic source ${name}`);
+  }
+  checkPicRuntime(root, errors, sourceAvailable ? 'Pic source runtime' : 'Pic generated runtime', {
+    html: sourceAvailable ? path.join(root, 'vendor', 'pic-editor', 'public', 'index.html') : path.join(generatedRoot, 'index.html'),
+    css: sourceAvailable ? path.join(root, 'vendor', 'pic-editor', 'public', 'styles.css') : path.join(generatedRoot, 'styles.css'),
+    js: sourceAvailable ? path.join(root, 'vendor', 'pic-editor', 'public', 'app.js') : path.join(generatedRoot, 'app.js')
+  });
 }
 
 function readSubmoduleCommit(directory) {
@@ -333,7 +399,7 @@ function verifyUpstreams(options = {}) {
   const root = path.resolve(options.root || ROOT);
   const manifest = readManifest(root);
   const errors = [];
-  if (manifest.schema !== 3) errors.push(`manifest schema must be 3 (found ${String(manifest.schema)}).`);
+  if (manifest.schema !== 4) errors.push(`manifest schema must be 4 (found ${String(manifest.schema)}).`);
   if (!manifest.upstream || typeof manifest.upstream !== 'object' || Array.isArray(manifest.upstream)) {
     errors.push('upstream: manifest section is missing.');
   }
@@ -341,17 +407,19 @@ function verifyUpstreams(options = {}) {
   const sourceStates = {
     qr: inspectSource(root, 'qr', QR_SOURCE_FILES),
     pdf: inspectSource(root, 'pdf', PDF_SOURCE_FILES),
+    pic: inspectSource(root, 'pic', ['public/index.html', 'public/styles.css', 'public/app.js', 'SPECIFICATION.md']),
     url: inspectSource(root, 'url', ANALYTICS_SOURCE_FILES)
   };
   const sourceChecks = {
     qr: sourceStates.qr.available,
     pdf: sourceStates.pdf.available,
+    pic: sourceStates.pic.available,
     url: sourceStates.url.available
   };
-  for (const group of ['qr', 'pdf', 'url']) {
+  for (const group of ['qr', 'pdf', 'pic', 'url']) {
     const state = sourceStates[group];
     if (state.partial && !state.available) {
-      const label = group === 'qr' ? 'QR' : group === 'pdf' ? 'PDF' : 'URL';
+      const label = group === 'qr' ? 'QR' : group === 'pdf' ? 'PDF' : group === 'pic' ? 'Pic' : 'URL';
       if (state.uninitialized) {
         errors.push(`${label} source tree is present but submodule is not initialized (.git is missing).`);
       } else {
@@ -362,6 +430,7 @@ function verifyUpstreams(options = {}) {
   if (manifest.upstream && typeof manifest.upstream === 'object') {
     verifyGroup(root, manifest, 'qr', sourceChecks.qr, errors);
     verifyGroup(root, manifest, 'pdf', sourceChecks.pdf, errors);
+    verifyPic(root, manifest, sourceChecks.pic, errors);
     verifyUrl(root, manifest, sourceChecks.url, errors);
   }
   verifyIntegration(root, manifest, errors);
@@ -378,7 +447,7 @@ function verifyUpstreams(options = {}) {
 }
 
 function describeSourceCheck(group, available, state = null) {
-  const label = group === 'qr' ? 'QR' : group === 'pdf' ? 'PDF' : 'URL';
+  const label = group === 'qr' ? 'QR' : group === 'pdf' ? 'PDF' : group === 'pic' ? 'Pic' : 'URL';
   if (state?.partial && !state.available) {
     return state.uninitialized
       ? `${label} source checks failed (source tree is present but submodule is not initialized).`
@@ -393,6 +462,7 @@ function main() {
     const result = verifyUpstreams();
     console.log(describeSourceCheck('qr', result.sourceChecks.qr, result.sourceStates.qr));
     console.log(describeSourceCheck('pdf', result.sourceChecks.pdf, result.sourceStates.pdf));
+    console.log(describeSourceCheck('pic', result.sourceChecks.pic, result.sourceStates.pic));
     console.log(describeSourceCheck('url', result.sourceChecks.url, result.sourceStates.url));
     console.log('verify:upstreams: generated files match renderer/vendor/MANIFEST.json.');
     return result;
@@ -400,6 +470,7 @@ function main() {
     if (error && error.sourceChecks) {
       console.log(describeSourceCheck('qr', error.sourceChecks.qr, error.sourceStates?.qr));
       console.log(describeSourceCheck('pdf', error.sourceChecks.pdf, error.sourceStates?.pdf));
+      console.log(describeSourceCheck('pic', error.sourceChecks.pic, error.sourceStates?.pic));
       console.log(describeSourceCheck('url', error.sourceChecks.url, error.sourceStates?.url));
     }
     console.error(`verify:upstreams: ${error instanceof Error ? error.message : String(error)}`);
@@ -416,9 +487,12 @@ module.exports = {
   sha256,
   ANALYTICS_COMMIT,
   ANALYTICS_SOURCE_FILES,
+  PIC_SOURCE_FILES,
+  PIC_GENERATED_FILES,
   URL_GENERATED_FILES,
   inspectSource,
   verifyUrl,
+  verifyPic,
   verifyUpstreams,
   describeSourceCheck
 };

@@ -2,7 +2,7 @@
   "name": "kusunoki-desktop-tools",
   "productName": "Kusunoki Desktop Tools",
   "version": "1.0.9",
-  "description": "Offline QR generator and PDF editor for Windows, macOS and Linux.",
+  "description": "Offline QR generator, PDF editor and browser-based picture editor for Windows, macOS and Linux.",
   "main": "electron/main.js",
   "type": "commonjs",
   "author": "KF-itdepartment",

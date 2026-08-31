@@ -33,12 +33,15 @@ const qrSource = path.join(root, 'vendor', 'qr-generator', 'public');
 const pdfSource = path.join(root, 'vendor', 'pdf-editor');
 const analyticsRoot = path.join(root, 'vendor', 'analytics-url-generator');
 const analyticsSource = path.join(analyticsRoot, 'src', 'index.js');
+const picSource = path.join(root, 'vendor', 'pic-editor', 'public');
+const picSpecSource = path.join(root, 'vendor', 'pic-editor', 'SPECIFICATION.md');
 const urlGenerated = path.join(generated, 'url');
 const ANALYTICS_COMMIT = 'b65e77c8600572f5ddac80b4bc78dde4476b5380';
 
 fs.mkdirSync(vendor, { recursive: true });
 fs.mkdirSync(path.join(generated, 'qr'), { recursive: true });
 fs.mkdirSync(path.join(generated, 'pdf'), { recursive: true });
+fs.mkdirSync(path.join(generated, 'pic'), { recursive: true });
 fs.mkdirSync(urlGenerated, { recursive: true });
 
 function requireFile(file) {
@@ -107,7 +110,7 @@ function readFallbackManifest() {
   } catch (error) {
     throw new Error(`committed upstream manifest is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!manifest || manifest.schema !== 3 || !manifest.upstream?.qr || !manifest.upstream?.pdf || !manifest.upstream?.url || !manifest.adapter?.sha256) {
+  if (!manifest || manifest.schema !== 4 || !manifest.upstream?.qr || !manifest.upstream?.pdf || !manifest.upstream?.url || !manifest.upstream?.pic || !manifest.adapter?.sha256) {
     throw new Error('committed upstream manifest is incomplete; cannot safely use generated fallback.');
   }
   return manifest;
@@ -127,9 +130,38 @@ function assertFallbackHash(relativeFile, expectedHash, label) {
   }
 }
 
-function validateFallbackArtifacts(manifest, needQr, needPdf) {
+function stripRuntimeComments(value) {
+  return String(value || '')
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/(^|[^:\\])\/\/[^\r\n]*/gmu, '$1');
+}
+
+function assertPicRuntime(files, label = 'pic-editor') {
+  const html = String(files.html || '');
+  const css = stripRuntimeComments(files.css);
+  const js = stripRuntimeComments(files.js);
+  if (!/connect-src\s+['"]none['"]/iu.test(html)) {
+    throw new Error(`${label}: CSP must declare connect-src 'none'.`);
+  }
+  if (/<(?:script|link)\b[^>]+(?:https?:\/\/|\/\/|\bcdn\.)/iu.test(html)) {
+    throw new Error(`${label}: HTML contains a remote script or stylesheet reference.`);
+  }
+  if (/\bfetch\s*\(|\bimport\s*\(/iu.test(`${css}\n${js}`)) {
+    throw new Error(`${label}: runtime must not use fetch() or dynamic import().`);
+  }
+  // Fabric's SVG serializer emits standards-mandated W3C namespace/DTD
+  // identifiers. They are not network requests and are the only URLs allowed
+  // in the bundled runtime; all other external URLs remain rejected.
+  const runtimeCode = `${css}\n${js}`.replace(/https?:\/\/(?:www\.)?w3\.org\b[^\s'"`]*/giu, '');
+  if (/https?:\/\/|\bcdn\./iu.test(runtimeCode)) {
+    throw new Error(`${label}: runtime contains an external URL or CDN reference.`);
+  }
+}
+
+function validateFallbackArtifacts(manifest, needQr, needPdf, needPic) {
   const qrFiles = ['index.html', 'script.js', 'batch-utils.mjs', 'logo.png', 'vendor/fflate.mjs', 'vendor/fflate.LICENSE.txt', 'batch-utils.js'];
   const pdfFiles = ['index.html', 'script.js', 'SPECIFICATION.md', 'pdf-frame-bridge.js', 'pdf-data-url.js'];
+  const picFiles = ['index.html', 'styles.css', 'app.js', 'SPECIFICATION.md'];
   if (needQr) {
     for (const name of qrFiles) {
       const entry = manifest.upstream.qr[name];
@@ -150,6 +182,17 @@ function validateFallbackArtifacts(manifest, needQr, needPdf) {
       assertFallbackHash(`renderer/generated/upstream/pdf/${name}`, expected, `PDF ${name}`);
     }
   }
+  if (needPic) {
+    for (const name of picFiles) {
+      const entry = manifest.upstream.pic[name];
+      assertFallbackHash(`renderer/generated/upstream/pic/${name}`, entry?.generatedSha256 || entry?.sha256, `Pic ${name}`);
+    }
+    assertPicRuntime({
+      html: fs.readFileSync(path.join(generated, 'pic', 'index.html'), 'utf8'),
+      css: fs.readFileSync(path.join(generated, 'pic', 'styles.css'), 'utf8'),
+      js: fs.readFileSync(path.join(generated, 'pic', 'app.js'), 'utf8')
+    }, 'committed pic-editor fallback');
+  }
   if (needQr || needPdf) {
     assertFallbackHash('renderer/generated/upstream-adapter.js', manifest.adapter.sha256, 'generated upstream adapter');
   }
@@ -164,12 +207,17 @@ const qrFiles = [
   'vendor/fflate.LICENSE.txt'
 ];
 const pdfFiles = ['index.html', 'script.js', 'SPECIFICATION.md'];
+const picFiles = ['index.html', 'styles.css', 'app.js', 'SPECIFICATION.md'];
 const forceFallback = isTruthy(process.env.KUSUNOKI_STAGE_FALLBACK);
 const qrSourceReady = !forceFallback && hasCompleteSource(qrSource, qrFiles);
 const pdfSourceReady = !forceFallback && hasCompleteSource(pdfSource, pdfFiles);
 const analyticsSourceReady = !forceFallback && fs.existsSync(analyticsSource) && fs.statSync(analyticsSource).isFile();
-const fallbackManifest = (!qrSourceReady || !pdfSourceReady || !analyticsSourceReady) ? readFallbackManifest() : null;
-if (fallbackManifest) validateFallbackArtifacts(fallbackManifest, !qrSourceReady, !pdfSourceReady);
+const picSourceReady = !forceFallback
+  && hasCompleteSource(picSource, ['index.html', 'styles.css', 'app.js'])
+  && fs.existsSync(picSpecSource)
+  && fs.statSync(picSpecSource).isFile();
+const fallbackManifest = (!qrSourceReady || !pdfSourceReady || !analyticsSourceReady || !picSourceReady) ? readFallbackManifest() : null;
+if (fallbackManifest) validateFallbackArtifacts(fallbackManifest, !qrSourceReady, !pdfSourceReady, !picSourceReady);
 
 function readSubmoduleCommit(directory) {
   try {
@@ -386,10 +434,37 @@ pdfManifest['pdf-data-url.js'] = {
   sha256: hash(pdfDataUrlHelperPath)
 };
 
+let picManifest;
+const picSourceFor = (name) => name === 'SPECIFICATION.md'
+  ? picSpecSource
+  : path.join(picSource, name);
+if (picSourceReady) {
+  const sourceFiles = Object.fromEntries(picFiles.map((name) => [name, picSourceFor(name)]));
+  assertPicRuntime({
+    html: fs.readFileSync(sourceFiles['index.html'], 'utf8'),
+    css: fs.readFileSync(sourceFiles['styles.css'], 'utf8'),
+    js: fs.readFileSync(sourceFiles['app.js'], 'utf8')
+  });
+  picManifest = {};
+  for (const name of picFiles) {
+    const source = sourceFiles[name];
+    const target = path.join(generated, 'pic', name);
+    copy(source, target);
+    picManifest[name] = {
+      source: path.relative(root, source).replaceAll(path.sep, '/'),
+      sha256: hash(source),
+      generatedSha256: hash(target)
+    };
+  }
+} else {
+  picManifest = clone(fallbackManifest.upstream.pic);
+}
+
 const adapter = `'use strict';\n\n// Generated by scripts/stage-vendors.js. Do not edit by hand.\n(() => {\n  const metadata = ${JSON.stringify({
   generatedBy: 'scripts/stage-vendors.js',
   qr: qrManifest,
   pdf: pdfManifest,
+  pic: picManifest,
   url: urlManifest,
   browser: {
     pdfLib: 'renderer/vendor/pdf-lib.min.js',
@@ -405,11 +480,12 @@ const hardenedAdapter = adapter.replace(
 writeUtf8(path.join(renderer, 'generated', 'upstream-adapter.js'), hardenedAdapter);
 
 const manifest = {
-  schema: 3,
+  schema: 4,
   generatedBy: 'scripts/stage-vendors.js',
   upstream: {
     qr: qrManifest,
     pdf: pdfManifest,
+    pic: picManifest,
     url: urlManifest
   },
   browser: {
@@ -450,4 +526,4 @@ const manifest = {
 };
 writeUtf8(path.join(vendor, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log(`Staged ${Object.keys(qrManifest).length} QR, ${Object.keys(pdfManifest).length} PDF, and ${Object.keys(urlManifest).length} URL upstream files plus local browser assets (QR: ${qrSourceReady ? 'submodule' : 'committed fallback'}, PDF: ${pdfSourceReady ? 'submodule' : 'committed fallback'}, URL: ${analyticsSourceReady ? 'submodule' : 'committed fallback'}).`);
+console.log(`Staged ${Object.keys(qrManifest).length} QR, ${Object.keys(pdfManifest).length} PDF, ${Object.keys(picManifest).length} Pic, and ${Object.keys(urlManifest).length} URL upstream files plus local browser assets (QR: ${qrSourceReady ? 'submodule' : 'committed fallback'}, PDF: ${pdfSourceReady ? 'submodule' : 'committed fallback'}, Pic: ${picSourceReady ? 'submodule' : 'committed fallback'}, URL: ${analyticsSourceReady ? 'submodule' : 'committed fallback'}).`);

@@ -30,7 +30,31 @@ async function inspectRenderer() {
         && childWindow.pdfjsLib
         && childWindow.JSZip;
       const bridge = document.documentElement.dataset.pdfFrameReady === 'true';
-      if (domReady && libraries && bridge) {
+      const picFrame = document.getElementById('pic-editor-frame');
+      const picDocument = picFrame && picFrame.contentDocument;
+      const picWindow = picFrame && picFrame.contentWindow;
+      const picReady = picDocument && picDocument.readyState === 'complete';
+      const picCanvas = picReady && picDocument.querySelector('#editor-canvas');
+      const picControls = picReady && picDocument.querySelector('#addImage')
+        && picDocument.querySelector('#addText')
+        && picDocument.querySelector('#addRect')
+        && picDocument.querySelector('#propsSection')
+        && picDocument.querySelector('.layers-section');
+      if (domReady && libraries && bridge && picReady && picCanvas && picControls) {
+        const japaneseLabels = ['画像', '文字', '長方形', '楕円', '線', '矢印', 'プロパティ', 'レイヤー'];
+        const picText = picDocument.body?.textContent || '';
+        if (!japaneseLabels.every((label) => picText.includes(label))) throw new Error('pic editor Japanese controls are missing');
+        const remoteAsset = Array.from(picDocument.querySelectorAll('script[src], link[href]'))
+          .find((element) => /https?:\\/\\//iu.test(element.getAttribute('src') || element.getAttribute('href') || ''));
+        if (remoteAsset) throw new Error('pic editor has a remote runtime asset');
+        if (picFrame.hasAttribute('sandbox')) throw new Error('pic editor iframe must not have a sandbox attribute');
+        const layersBefore = picDocument.querySelectorAll('.layer-row').length;
+        picDocument.getElementById('addRect').click();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const statusText = picDocument.getElementById('status')?.textContent || '';
+        const layersAfter = picDocument.querySelectorAll('.layer-row').length;
+        const shapeAdded = layersAfter > layersBefore && (statusText.includes('長方形') || statusText.length > 0);
+        if (!shapeAdded) throw new Error('pic editor shape add smoke operation failed (layers ' + layersBefore + '->' + layersAfter + ', status ' + statusText + ')');
         return {
           frameSrc: frame.getAttribute('src'),
           childReadyState: childDocument.readyState,
@@ -41,12 +65,21 @@ async function inspectRenderer() {
           bridgeScript: Boolean(childDocument.querySelector('script[src="pdf-frame-bridge.js"]')),
           watermarkInput: Boolean(childDocument.querySelector('#wm-img-input')),
           watermarkMode: Boolean(childDocument.querySelector('#mode-watermark')),
-          pdfViewer: Boolean(childDocument.querySelector('#pdf-viewer'))
+          pdfViewer: Boolean(childDocument.querySelector('#pdf-viewer')),
+          picFrameSrc: picFrame.getAttribute('src'),
+          picReadyState: picDocument.readyState,
+          picCanvas: Boolean(picCanvas),
+          picCanvasFabric: picCanvas.getAttribute('data-fabric') === 'main',
+          picJapaneseControls: true,
+          picLocalAssets: true,
+          picSandboxAttribute: picFrame.hasAttribute('sandbox'),
+          picShapeAdded: shapeAdded,
+          picWindow: Boolean(picWindow)
         };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error('generated PDF iframe did not become ready within 15 seconds');
+    throw new Error('generated PDF or Pic iframe did not become ready within 15 seconds');
   })()`;
   return smokeWindow.webContents.executeJavaScript(script, true);
 }
@@ -97,8 +130,8 @@ async function run() {
     if (consoleErrors.length) console.error(`Renderer diagnostics: ${consoleErrors.join(' | ')}`);
     throw error;
   }
-  if (!result.bridgeReady || result.frameSrc !== './generated/upstream/pdf/index.html') {
-    throw new Error(`unexpected generated PDF iframe result: ${JSON.stringify(result)}`);
+  if (!result.bridgeReady || result.frameSrc !== './generated/upstream/pdf/index.html' || result.picFrameSrc !== './generated/upstream/pic/index.html' || !result.picShapeAdded) {
+    throw new Error(`unexpected generated upstream iframe result: ${JSON.stringify(result)}`);
   }
   if (externalRequests.length) throw new Error(`external requests detected: ${externalRequests.join(', ')}`);
   if (consoleErrors.length) throw new Error(`renderer console errors: ${consoleErrors.join(' | ')}`);

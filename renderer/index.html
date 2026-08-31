@@ -13,10 +13,11 @@
     <nav class="main-nav" aria-label="アプリ切替">
       <button class="nav-button active" type="button" data-view="qr-view">QRコード</button>
       <button class="nav-button" type="button" data-view="pdf-view">PDFエディター</button>
+      <button class="nav-button" type="button" data-view="pic-view">画像エディター</button>
       <button class="nav-button" type="button" data-view="url-view">UTM URL生成・短縮</button>
       <button class="nav-button" type="button" data-view="assets-view">素材トレイ</button>
     </nav>
-    <div class="qr-mode-switch" role="group" aria-label="QRコード生成方式">
+    <div id="qr-mode-switch" class="qr-mode-switch" role="group" aria-label="QRコード生成方式">
       <span class="qr-mode-label">QR通信</span>
       <button id="qr-online-mode" class="mode-button active" type="button" data-qr-mode="online" aria-pressed="true">オンライン</button>
       <button id="qr-offline-mode" class="mode-button" type="button" data-qr-mode="offline" aria-pressed="false">オフライン</button>
@@ -95,6 +96,14 @@
         <div class="control-row"><button id="pdf-preview-btn" class="secondary" disabled>プレビュー</button><button id="pdf-action-btn" class="primary" disabled>処理して保存</button><button id="pdf-clear-btn" class="quiet-button">クリア</button></div><p id="pdf-status" class="status" role="status" aria-live="polite"></p>
       </div>
       <div class="preview-panel legacy-pdf-fallback" hidden aria-hidden="true"><h2>プレビュー</h2><div id="pdf-preview-empty" class="empty-state">処理後のPDFをプレビューできます</div><iframe id="pdf-viewer" title="PDFプレビュー" hidden></iframe></div>
+    </section>
+
+    <section id="pic-view" class="view" aria-labelledby="pic-heading" hidden>
+      <div class="section-heading"><div><p class="eyebrow">LOCAL PICTURE EDITING</p><h1 id="pic-heading">画像エディター</h1><p>画像・文字・図形をブラウザ内で編集し、画像ファイルまたはプロジェクトとして保存できます。</p></div></div>
+      <div class="pic-upstream-shell">
+        <p id="pic-frame-status" class="status" role="status" aria-live="polite">画像エディターを読み込んでいます…</p>
+        <iframe id="pic-editor-frame" title="画像エディター" src="./generated/upstream/pic/index.html" referrerpolicy="no-referrer"></iframe>
+      </div>
     </section>
 
     <section id="assets-view" class="view" aria-labelledby="assets-heading" hidden>

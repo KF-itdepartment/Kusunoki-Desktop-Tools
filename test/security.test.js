@@ -12,7 +12,7 @@ test('renderer has local-only CSP and no CDN references', () => {
   const nav = html.match(/<nav class="main-nav"[\s\S]*?<\/nav>/u)?.[0];
   assert.ok(nav, 'main navigation is present');
   const navLabels = [...nav.matchAll(/<button[^>]*data-view="[^"]+"[^>]*>([^<]*)<\/button>/gu)].map((match) => match[1]);
-  assert.deepEqual(navLabels, ['QRコード', 'PDFエディター', 'UTM URL生成・短縮', '素材トレイ']);
+  assert.deepEqual(navLabels, ['QRコード', 'PDFエディター', '画像エディター', 'UTM URL生成・短縮', '素材トレイ']);
   assert.equal(navLabels.at(-1), '素材トレイ');
   assert.match(html, /<h1 id="url-heading">UTM URL生成・短縮<\/h1>/u);
   assert.doesNotMatch(html, /URL短縮/u);

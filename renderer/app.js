@@ -27,6 +27,7 @@
     objectUrls: new Set(),
     draggedPdfIndex: null,
     pdfFrameReady: false,
+    picFrameReady: false,
     urlBusy: false,
     urlLongUrl: '',
     urlShortUrl: '',
@@ -105,6 +106,8 @@
     state.view = viewId;
     views.forEach((view) => { view.hidden = view.id !== viewId; view.classList.toggle('active', view.id === viewId); });
     navButtons.forEach((button) => button.classList.toggle('active', button.dataset.view === viewId));
+    const qrModeSwitch = $('qr-mode-switch');
+    if (qrModeSwitch) qrModeSwitch.hidden = viewId !== 'qr-view';
     if (viewId === 'assets-view') void loadAssets();
   }
 
@@ -472,6 +475,29 @@
     // scripts. A one-time ping after listener registration closes that race
     // without allowing any network access or changing the frame contract.
     ping();
+  }
+
+  function setupPicFrame() {
+    const frame = $('pic-editor-frame');
+    if (!frame) return;
+    const markReady = () => {
+      const childDocument = frame.contentDocument;
+      const canvas = childDocument?.getElementById('editor-canvas');
+      state.picFrameReady = Boolean(canvas);
+      document.documentElement.dataset.picFrameReady = String(state.picFrameReady);
+      if (state.picFrameReady) setStatus('pic-frame-status', '画像エディターを利用できます。');
+      else setStatus('pic-frame-status', '画像エディターのキャンバスを確認できません。', true);
+    };
+    frame.addEventListener('load', markReady);
+    frame.addEventListener('error', () => {
+      state.picFrameReady = false;
+      document.documentElement.dataset.picFrameReady = 'false';
+      setStatus('pic-frame-status', '画像エディターを読み込めませんでした。', true);
+    });
+    // A hidden view can finish loading before the parent registers handlers.
+    // Inspecting the same-origin generated document closes that race without
+    // introducing a bridge or an IPC capability.
+    if (frame.contentDocument?.readyState === 'complete') markReady();
   }
 
   function renderBatchErrors(errors) {
@@ -958,6 +984,7 @@
 
   function wireEvents() {
     setupPdfFrame();
+    setupPicFrame();
     setupUpdateDialog();
     setupQrMode(); setupBatchInput();
     setupUrlGenerator();

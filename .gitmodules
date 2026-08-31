@@ -7,3 +7,6 @@
 [submodule "vendor/analytics-url-generator"]
 	path = vendor/analytics-url-generator
 	url = https://github.com/KF-itdepartment/analytics_url_generator.git
+[submodule "vendor/pic-editor"]
+	path = vendor/pic-editor
+	url = https://github.com/KF-itdepartment/pic-editor.git

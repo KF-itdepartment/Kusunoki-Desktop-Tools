@@ -1,6 +1,6 @@
 # Kusunoki Desktop Tools
 
-Kusunoki Desktop Tools は、QRコード生成とPDF編集を一つのデスクトップシェルにまとめたElectronアプリです。QR生成は起動時にオンラインAPIモードで開始し、ヘッダーの切替からローカルモードも選べます。オンラインAPIに失敗した場合は同じ入力をローカルで再生成し、そのセッション中はオフラインへ切り替えます。一括生成で失敗した場合はオンラインの途中結果を破棄して全件をローカルで再実行します。PDF処理と素材トレイはローカルで動作し、更新確認は独立しています。レンダラーはCSPとリクエストブロックで外部API/CDNへ直接通信できず、QR API呼び出しはmain processから固定HTTPSエンドポイントへ行います。
+Kusunoki Desktop Tools は、QRコード生成、PDF編集、ブラウザ完結の画像編集を一つのデスクトップシェルにまとめたElectronアプリです。QR生成は起動時にオンラインAPIモードで開始し、ヘッダーの切替からローカルモードも選べます。オンラインAPIに失敗した場合は同じ入力をローカルで再生成し、そのセッション中はオフラインへ切り替えます。一括生成で失敗した場合はオンラインの途中結果を破棄して全件をローカルで再実行します。PDF処理、画像編集、素材トレイはローカルで動作し、更新確認は独立しています。レンダラーはCSPとリクエストブロックで外部API/CDNへ直接通信できず、QR API呼び出しはmain processから固定HTTPSエンドポイントへ行います。
 
 ## ダウンロード・インストール
 
@@ -23,10 +23,10 @@ Windowsでは `win-unpacked` 内のexeではなく、`Kusunoki-Desktop-Tools-Set
 npm install
 npm test
 npm run dev
-npm run electron:smoke  # hidden-window smoke: generated PDF iframe and local libraries
+npm run electron:smoke  # hidden-window smoke: generated PDF/Pic iframe and local libraries
 ```
 
-`npm install` の `prepare` が `vendor/qr-generator/public` と `vendor/pdf-editor` の上流画面・スクリプト・ロゴを `renderer/generated/upstream/` へ展開します。QRの `batch-utils.mjs` は同じソースから `batch-utils.js` へ機械的にclassic/global変換され、シェルが実際にロードします。CSVはUTF-8（BOM可）を優先し、UTF-8として不正な場合はShift_JISへフォールバックします。PDFの `index.html` / `script.js` は unpkg参照を `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換し、生成された `pdf-data-url.js`（`fetch()`を使わないdata URL変換）と `pdf-frame-bridge.js` とともに上流PDF iframeとして通常表示・実行されます。外側iframeにHTML sandbox属性は付けず、Electronの `BrowserWindow`（`sandbox: true`、`nodeIntegration: false`、厳格CSP、外部要求ブロック）をプロセス境界にします。QR→PDF受渡しは検証済みpostMessageから上流UIの `#wm-img-input` へFile/DataTransferを設定します。統合アダプターと上流SHA-256は `renderer/vendor/MANIFEST.json` で追跡できます。QR APIは `https://qr-generator.kf-itdepartment.workers.dev/api/qr` に固定され、main processのQRサービスが応答を検証します。オンライン失敗時の同じ入力のローカル再生成とセッションモード切替はrendererが行います。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
+`npm install` の `prepare` が `vendor/qr-generator/public`、`vendor/pdf-editor`、`vendor/pic-editor/public` の上流画面・スクリプト・スタイルなどを `renderer/generated/upstream/` へ展開します。画像エディターは `renderer/generated/upstream/pic/index.html` を同一オリジンのiframeで表示し、Fabric.jsを含むbundle、HTML、CSS、仕様書をmanifestのSHA-256で追跡します。画像エディターはブラウザ内だけで動作し、外部fetch・CDN・IPC・Node APIを使用しません。QRの `batch-utils.mjs` は同じソースから `batch-utils.js` へ機械的にclassic/global変換され、シェルが実際にロードします。CSVはUTF-8（BOM可）を優先し、UTF-8として不正な場合はShift_JISへフォールバックします。PDFの `index.html` / `script.js` は unpkg参照を `pdf-lib`、`pdfjs-dist@3.11.174`、`jszip` のnpm同梱ファイルへ変換し、生成された `pdf-data-url.js`（`fetch()`を使わないdata URL変換）と `pdf-frame-bridge.js` とともに上流PDF iframeとして通常表示・実行されます。外側iframeにHTML sandbox属性は付けず、Electronの `BrowserWindow`（`sandbox: true`、`nodeIntegration: false`、厳格CSP、外部要求ブロック）をプロセス境界にします。QR→PDF受渡しは検証済みpostMessageから上流UIの `#wm-img-input` へFile/DataTransferを設定します。統合アダプターと上流SHA-256は `renderer/vendor/MANIFEST.json` で追跡できます。QR APIは `https://qr-generator.kf-itdepartment.workers.dev/api/qr` に固定され、main processのQRサービスが応答を検証します。オンライン失敗時の同じ入力のローカル再生成とセッションモード切替はrendererが行います。開発者ツール・Node.js API・ファイルシステムはレンダラーへ公開していません。
 上流submoduleが未初期化でも、コミット済みの `renderer/generated/upstream/` と `MANIFEST.json` をSHA-256検証してそのまま使うfallbackがあります。ブラウザ用npm依存だけは毎回 `node_modules` から再ステージします。fallbackの再現確認には `KUSUNOKI_STAGE_FALLBACK=1 npm run stage:vendors`（Windows cmdでは `set KUSUNOKI_STAGE_FALLBACK=1&& npm run stage:vendors`）を使えます。
 
 ## ビルド
@@ -42,7 +42,7 @@ npm run verify:pack  # pack後にasarへ上流画面・ロゴ・同梱ライブ�
 
 ## 上流同期
 
-`vendor/qr-generator` と `vendor/pdf-editor` はGit submoduleです。URLは `.gitmodules` に固定され、統合固有の変更は加えません。通常のCI/Releaseはprivate upstreamをcheckoutせず、コミット済みgeneratedファイルだけで動作します。同期ワークフローは毎時（および `workflow_dispatch`）に候補checkoutをテスト・buildし、成功した場合だけ `main` へsubmodule gitlink、generated upstream、manifestをまとめてcommitします。
+`vendor/qr-generator`、`vendor/pdf-editor`、`vendor/pic-editor` はGit submoduleです。URLは `.gitmodules` に固定され、統合固有の変更は加えません。通常のCI/Releaseはprivate upstreamをcheckoutせず、コミット済みgeneratedファイルだけで動作します。同期ワークフローは毎時（および `workflow_dispatch`）に候補checkoutをテスト・buildし、成功した場合だけ `main` へsubmodule gitlink、generated upstream、manifestをまとめてcommitします。
 
 ```bash
 git submodule update --init --recursive
@@ -50,17 +50,17 @@ npm run sync-upstreams
 npm run verify:upstreams
 ```
 
-ローカルの `sync-upstreams` は、両submoduleと同期対象の親repoパスがcleanであることを先に確認し、両方の `origin/main` をfetchしてから取得したSHAへdetached checkoutします。その後 `stage-vendors.js` を実行し、submodule gitlinkとgenerated upstream・manifestを同じworking treeへ反映します。commit/pushは行わないため、結果を確認してから必要な変更だけを自分でcommitしてください。親repoの無関係な変更には触れません。未初期化・dirty・fetch・checkout・生成失敗時は非ゼロで終了し、fetch失敗時はcheckoutを開始しません。
+ローカルの `sync-upstreams` は、4つのsubmoduleと同期対象の親repoパスがcleanであることを先に確認し、各 `origin/main` をfetchしてから取得したSHAへdetached checkoutします。その後 `stage-vendors.js` を実行し、submodule gitlinkとgenerated upstream・manifestを同じworking treeへ反映します。commit/pushは行わないため、結果を確認してから必要な変更だけを自分でcommitしてください。親repoの無関係な変更には触れません。未初期化・dirty・fetch・checkout・生成失敗時は非ゼロで終了し、fetch失敗時はcheckoutを開始しません。
 
 `npm run verify:upstreams` は読み取り専用です。submoduleのsourceが存在する場合はcanonical LFのSHA-256でsource、manifest、generatedファイルの整合性を検証し、CIなどでsourceが利用できない場合はsource checks skippedと明示してコミット済みgenerated fallbackだけを検証します。
 
-private upstreamをGitHub Actionsから同期する場合だけ、統合repoの Settings → Secrets and variables → Actions に `UPSTREAM_TOKEN` を登録します。Fine-grained PATまたは組織管理secretを使用し、対象は `KF-itdepartment/QR-Generator` と `KF-itdepartment/pdf-editor`、権限は各repoの `Contents: Read` のみにしてください。Actions workflowはこのtokenをupstreamのread checkoutにだけ渡し、統合repoへのcommit/pushにはGitHub Actionsの `GITHUB_TOKEN` を使います。広範な個人OAuth tokenや書き込み権限tokenを流用しないでください。`UPSTREAM_TOKEN` が未設定なら同期jobは `private upstream sync disabled` をjob summaryへ記録して成功終了します。
+private upstreamをGitHub Actionsから同期する場合だけ、統合repoの Settings → Secrets and variables → Actions に `UPSTREAM_TOKEN` を登録します。Fine-grained PATまたは組織管理secretを使用し、対象は `KF-itdepartment/QR-Generator`、`KF-itdepartment/pdf-editor`、`KF-itdepartment/pic-editor`、`KF-itdepartment/analytics_url_generator`、権限は各repoの `Contents: Read` のみにしてください。Actions workflowはこのtokenをupstreamのread checkoutにだけ渡し、統合repoへのcommit/pushにはGitHub Actionsの `GITHUB_TOKEN` を使います。広範な個人OAuth tokenや書き込み権限tokenを流用しないでください。`UPSTREAM_TOKEN` が未設定なら同期jobは `private upstream sync disabled` をjob summaryへ記録して成功終了します。
 
 ## URL upstream / UPSTREAM_TOKEN
 
-The URL shortening upstream is the third read-only submodule `vendor/analytics-url-generator` (`https://github.com/KF-itdepartment/analytics_url_generator.git`), pinned to commit `b65e77c8600572f5ddac80b4bc78dde4476b5380`. Its `SOURCE_OPTIONS` and `MEDIUM_OPTIONS` are extracted from `src/index.js` into `renderer/generated/upstream/url/config.js`; the generated config and adapter are tracked by MANIFEST schema 3. UTM URL construction stays local to the renderer. Only the fixed Worker endpoint is called by the main process for shortening, and x.gd credentials remain Worker secrets.
+The URL shortening upstream is the third read-only submodule `vendor/analytics-url-generator` (`https://github.com/KF-itdepartment/analytics_url_generator.git`), pinned to commit `b65e77c8600572f5ddac80b4bc78dde4476b5380`. The browser picture editor is staged from the fourth application submodule `vendor/pic-editor` at commit `3d7c346`; its local-only runtime is copied to `renderer/generated/upstream/pic/`. Its `SOURCE_OPTIONS` and `MEDIUM_OPTIONS` are extracted from `src/index.js` into `renderer/generated/upstream/url/config.js`; the generated config, picture assets, and adapters are tracked by MANIFEST schema 4. UTM URL construction stays local to the renderer. Only the fixed Worker endpoint is called by the main process for shortening, and x.gd credentials remain Worker secrets.
 
-When `UPSTREAM_TOKEN` is configured for GitHub Actions, grant read-only `Contents` access to `KF-itdepartment/QR-Generator`, `KF-itdepartment/pdf-editor`, and `KF-itdepartment/analytics_url_generator`. The workflow passes that token only to upstream read checkouts; the integration repository continues to use `GITHUB_TOKEN` for its own commit/push.
+When `UPSTREAM_TOKEN` is configured for GitHub Actions, grant read-only `Contents` access to `KF-itdepartment/QR-Generator`, `KF-itdepartment/pdf-editor`, `KF-itdepartment/pic-editor`, and `KF-itdepartment/analytics_url_generator`. The workflow passes that token only to upstream read checkouts; the integration repository continues to use `GITHUB_TOKEN` for its own commit/push.
 
 ## リリース
 

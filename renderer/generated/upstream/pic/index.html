@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Kusunoki Pic Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">K</span><span>Pic Editor</span></div>
+    <div class="top-actions">
+      <button id="newProject" class="button subtle" type="button">新規</button>
+      <button id="saveProject" class="button subtle" type="button">プロジェクト保存</button>
+      <label class="button subtle file-button">プロジェクトを開く<input id="projectInput" type="file" accept=".kpic.json,application/json" aria-label="プロジェクトファイルを開く" hidden></label>
+      <button id="undoButton" class="button icon-button" type="button" title="元に戻す（Ctrl/Cmd+Z）" aria-label="元に戻す" disabled>↶</button>
+      <button id="redoButton" class="button icon-button" type="button" title="やり直す（Ctrl/Cmd+Y）" aria-label="やり直す" disabled>↷</button>
+      <div class="export-group">
+        <select id="exportFormat" aria-label="書き出し形式"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select>
+        <input id="exportQuality" type="number" min="1" max="100" value="92" aria-label="書き出し品質">
+        <input id="exportBackground" type="color" value="#ffffff" aria-label="JPEG背景色">
+        <button id="exportButton" class="button primary" type="button">画像を書き出す</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <aside class="panel left-panel" aria-label="ツール">
+      <div class="panel-heading"><span>追加</span><span class="kbd">⌘</span></div>
+      <div class="tool-grid">
+        <button id="addImage" class="tool-button wide" type="button"><span class="tool-icon">▧</span>画像</button>
+        <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-label="画像ファイルを追加" hidden>
+        <button id="addText" class="tool-button" type="button"><span class="tool-icon text-icon">T</span>文字</button>
+        <button id="addRect" class="tool-button" type="button"><span class="tool-icon">□</span>長方形</button>
+        <button id="addEllipse" class="tool-button" type="button"><span class="tool-icon">○</span>楕円</button>
+        <button id="addLine" class="tool-button" type="button"><span class="tool-icon">╱</span>線</button>
+        <button id="addArrow" class="tool-button" type="button"><span class="tool-icon">➜</span>矢印</button>
+      </div>
+      <div id="dropZone" class="drop-zone"><strong>ここに画像をドロップ</strong><span>PNG、JPEG、WebP · 最大30枚</span></div>
+
+      <div class="panel-section">
+        <div class="panel-heading"><span>整列</span></div>
+        <div class="button-row"><button id="duplicateButton" class="button subtle" type="button">複製</button><button id="deleteButton" class="button danger" type="button">削除</button></div>
+        <div class="button-grid two"><button id="bringFront" class="button subtle" type="button">最前面</button><button id="sendBack" class="button subtle" type="button">最背面</button><button id="bringForward" class="button subtle" type="button">前へ</button><button id="sendBackward" class="button subtle" type="button">後ろへ</button></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-heading"><span>選択を整列</span></div>
+        <div class="align-grid">
+          <button id="align-left" class="button subtle" type="button" title="左揃え" aria-label="左揃え">⇤</button><button id="align-center-x" class="button subtle" type="button" title="左右中央揃え" aria-label="左右中央揃え">↔</button><button id="align-right" class="button subtle" type="button" title="右揃え" aria-label="右揃え">⇥</button>
+          <button id="align-top" class="button subtle" type="button" title="上揃え" aria-label="上揃え">⇡</button><button id="align-center-y" class="button subtle" type="button" title="上下中央揃え" aria-label="上下中央揃え">↕</button><button id="align-bottom" class="button subtle" type="button" title="下揃え" aria-label="下揃え">⇣</button>
+        </div>
+        <div class="button-row"><button id="distributeX" class="button subtle" type="button">横方向に等間隔</button><button id="distributeY" class="button subtle" type="button">縦方向に等間隔</button></div>
+      </div>
+    </aside>
+
+    <section class="workspace" aria-label="キャンバス作業領域">
+      <div class="workspace-toolbar">
+        <div class="tool-status"><span class="status-dot"></span><span id="status">準備完了</span></div>
+        <div class="canvas-actions"><button id="cropImage" class="button subtle" type="button">画像をトリミング</button><button id="cropCanvas" class="button subtle" type="button">キャンバスをトリミング</button><button id="fitButton" class="button subtle" type="button">全体表示</button><input id="zoomRange" type="range" min="10" max="200" value="52" aria-label="表示倍率"><span id="zoomValue">52%</span></div>
+      </div>
+      <div id="canvasViewport" class="canvas-viewport">
+        <div id="canvasStage" class="canvas-stage">
+          <canvas id="editor-canvas" aria-label="画像編集キャンバス"></canvas>
+          <div id="cropOverlay" class="crop-overlay" hidden></div>
+        </div>
+      </div>
+      <div class="workspace-tip">オブジェクトを選択すると編集できます。画像をキャンバスへドロップするか「画像」を使ってください。矢印キーで1px、Shift＋矢印キーで10px移動します。</div>
+    </section>
+
+    <aside class="panel right-panel" aria-label="プロパティとレイヤー">
+      <section class="panel-section canvas-section">
+        <div class="panel-heading"><span>キャンバス</span><span class="small-note">最大16,384px / 100MP</span></div>
+        <div class="field-grid two">
+          <label>幅<input id="canvasWidth" type="number" min="1" max="16384" value="1920" aria-label="キャンバス幅"></label>
+          <label>高さ<input id="canvasHeight" type="number" min="1" max="16384" value="1080" aria-label="キャンバス高さ"></label>
+        </div>
+        <div class="field-grid two">
+          <label>比率<select id="ratioPreset" aria-label="キャンバス比率"><option value="custom">カスタム</option><option>1:1</option><option>4:3</option><option>3:2</option><option>16:9</option><option value="A4 portrait">A4 縦</option><option value="A4 landscape">A4 横</option></select></label>
+          <label class="check-label"><input id="ratioLock" type="checkbox"> 比率を固定</label>
+        </div>
+        <div class="field-grid two"><label>変更対象<select id="resizeTarget" aria-label="リサイズ対象"><option value="canvas">キャンバス</option><option value="image">選択画像</option></select></label><label>方式<select id="resizeMode" aria-label="リサイズ方式"><option value="stretch">引き伸ばす</option><option value="crop">切り抜く</option><option value="extend">余白を追加</option></select></label></div>
+        <div class="field-grid two"><label>アンカー<select id="resizeAnchor" aria-label="リサイズアンカー"><option value="top-left">左上</option><option value="top">上</option><option value="top-right">右上</option><option value="left">左</option><option value="center" selected>中央</option><option value="right">右</option><option value="bottom-left">左下</option><option value="bottom">下</option><option value="bottom-right">右下</option></select></label><button id="applyCanvasResize" class="button primary" type="button">リサイズを適用</button></div>
+        <button id="nativeCanvas" class="button subtle wide-button" type="button">選択画像の原寸を使用</button>
+        <div class="field-label">背景</div>
+        <div class="color-row"><input id="canvasColor" type="color" value="#ffffff" aria-label="背景色"><button id="eyedropper" class="button subtle" type="button" aria-label="キャンバスから色を採取">スポイト</button><label class="check-label"><input id="transparentBg" type="checkbox" checked> 透明</label></div>
+        <div class="rgb-row"><label>R<input id="bg-r" type="number" min="0" max="255" value="255" aria-label="背景赤"></label><label>G<input id="bg-g" type="number" min="0" max="255" value="255" aria-label="背景緑"></label><label>B<input id="bg-b" type="number" min="0" max="255" value="255" aria-label="背景青"></label></div>
+        <label>塗りつぶし範囲<select id="fillScope" aria-label="背景塗りつぶし範囲"><option value="full">背景全体</option><option value="new-margins">新しい余白のみ</option></select></label>
+      </section>
+
+      <section id="propsSection" class="panel-section properties-section">
+        <div class="panel-heading"><span>プロパティ</span><span id="selectionCount" class="small-note">0個選択</span></div>
+        <div id="propsEmpty" class="empty-state">オブジェクトを選択すると、位置・サイズ・色・効果を編集できます。</div>
+        <div id="propsContent" hidden>
+          <label>レイヤー名<input id="propName" type="text" maxlength="80" aria-label="レイヤー名"></label>
+          <div class="field-grid two"><label>X<input id="propLeft" type="number" aria-label="X座標"></label><label>Y<input id="propTop" type="number" aria-label="Y座標"></label><label>幅<input id="propWidth" type="number" min="1" aria-label="オブジェクト幅"></label><label>高さ<input id="propHeight" type="number" min="1" aria-label="オブジェクト高さ"></label><label>角度<input id="propAngle" type="number" aria-label="オブジェクト角度"></label><button id="applyBox" class="button subtle" type="button">枠を適用</button></div>
+          <div id="multiProps" class="empty-state" hidden>複数選択中です。左側の整列ツールを使ってください。</div>
+          <div id="textProps" class="sub-properties" hidden>
+            <div class="subheading">文字</div>
+            <label>内容<textarea id="textContent" rows="3" aria-label="文字内容"></textarea></label>
+            <div class="field-grid two"><label>フォント<select id="textFont" aria-label="フォント"><option>Arial</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option><option>Courier New</option><option>Verdana</option><option>Trebuchet MS</option></select></label><label>サイズ<input id="textSize" type="number" min="1" max="1000" value="64" aria-label="文字サイズ"></label></div>
+            <div class="color-row"><label>色<input id="textColor" type="color" value="#20252b" aria-label="文字色"></label><label class="check-label"><input id="textBold" type="checkbox"> 太字</label><label class="check-label"><input id="textItalic" type="checkbox"> 斜体</label></div>
+            <label>揃え<select id="textAlign" aria-label="文字揃え"><option value="left">左揃え</option><option value="center">中央揃え</option><option value="right">右揃え</option><option value="justify">均等割り付け</option></select></label>
+          </div>
+          <div id="imageProps" class="sub-properties" hidden>
+            <div class="subheading">画像の調整</div>
+            <label class="range-label"><span>グレースケール</span><input id="filterGrayscale" type="checkbox" aria-label="グレースケール"></label>
+            <label class="range-label"><span>明るさ</span><input id="filter-brightness" type="range" min="-100" max="100" value="0" aria-label="明るさ"><output>±100</output></label>
+            <label class="range-label"><span>コントラスト</span><input id="filter-contrast" type="range" min="-100" max="100" value="0" aria-label="コントラスト"><output>±100</output></label>
+            <label class="range-label"><span>彩度</span><input id="filter-saturation" type="range" min="-100" max="100" value="0" aria-label="彩度"><output>±100</output></label>
+            <label class="range-label"><span>ぼかし</span><input id="filter-blur" type="range" min="0" max="100" value="0" aria-label="ぼかし"><output>0–100</output></label>
+            <label class="range-label"><span>不透明度</span><input id="imageOpacity" type="range" min="0" max="100" value="100" aria-label="不透明度"><output>%</output></label>
+            <div class="button-row"><label class="check-label"><input id="flipX" type="checkbox"> 左右反転</label><label class="check-label"><input id="flipY" type="checkbox"> 上下反転</label></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section layers-section"><div class="panel-heading"><span>レイヤー</span><span class="small-note">上から下</span></div><div id="layersList" class="layers-list"></div></section>
+    </aside>
+  </main>
+
+  <div id="cropControls" class="crop-controls" hidden>
+    <label>トリミング比率<select id="cropRatio" aria-label="トリミング比率"><option value="custom">自由</option><option>1:1</option><option>4:3</option><option>3:2</option><option>16:9</option><option value="A4 portrait">A4 縦</option><option value="A4 landscape">A4 横</option></select></label>
+    <button id="applyCrop" class="button primary" type="button">トリミングを適用</button><button id="cancelCrop" class="button subtle" type="button">キャンセル</button>
+  </div>
+
+  <footer class="footer"><span>ブラウザ内で完結 · アップロードなし · 750ms後にプロジェクトを自動保存</span><span id="footerVersion">KPIC v1</span></footer>
+  <script src="app.js" defer></script>
+</body>
+</html>

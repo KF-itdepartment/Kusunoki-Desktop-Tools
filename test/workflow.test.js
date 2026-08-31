@@ -122,7 +122,8 @@ test('upstream sync gates private checkout on read-only UPSTREAM_TOKEN', () => {
   assert.match(workflow, /GITHUB_STEP_SUMMARY/);
   assert.match(workflow, /repository: KF-itdepartment\/QR-Generator/);
   assert.match(workflow, /repository: KF-itdepartment\/pdf-editor/);
+  assert.match(workflow, /repository: KF-itdepartment\/pic-editor/);
   assert.match(workflow, /token: \$\{\{ secrets\.UPSTREAM_TOKEN \}\}/);
-  assert.match(workflow, /git add \.gitmodules vendor\/qr-generator vendor\/pdf-editor vendor\/analytics-url-generator renderer\/generated renderer\/vendor\/MANIFEST\.json/);
+  assert.match(workflow, /git add \.gitmodules vendor\/qr-generator vendor\/pdf-editor vendor\/analytics-url-generator vendor\/pic-editor renderer\/generated renderer\/vendor\/MANIFEST\.json/);
   assert.doesNotMatch(workflow, /submodules:\s*recursive/u);
 });
