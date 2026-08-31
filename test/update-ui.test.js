@@ -1,8 +1,66 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createUpdateViewModel, normalizePercent, normalizeStatus, STATUS } = require('../renderer/update-ui');
+const {
+  createUpdateCheckCoordinator,
+  createUpdateViewModel,
+  normalizePercent,
+  normalizeStatus,
+  shouldShowAutomaticDialog,
+  STATUS
+} = require('../renderer/update-ui');
 
 const context = { currentVersion: '1.0.0', latestVersion: '1.1.0' };
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+}
+
+test('startup update checks only open a dialog when an update is available', () => {
+  assert.equal(shouldShowAutomaticDialog({ status: 'available', version: '1.1.0' }), true);
+  for (const status of ['checking', 'none', 'disabled', 'error', 'downloading', 'installing']) {
+    assert.equal(shouldShowAutomaticDialog({ status }), false, status);
+  }
+  assert.equal(shouldShowAutomaticDialog({ status: 'unknown-internal-error' }), false);
+});
+
+test('startup and manual checks share one promise while retaining manual dialog intent', async () => {
+  const pending = deferred();
+  let calls = 0;
+  const starts = [];
+  const results = [];
+  const coordinator = createUpdateCheckCoordinator(
+    () => { calls += 1; return pending.promise; },
+    {
+      onStart: (value) => starts.push(value),
+      onResult: (result, contextValue) => results.push({ result, context: contextValue })
+    }
+  );
+  const startup = coordinator.run({ automatic: true });
+  const manual = coordinator.run({ automatic: false });
+  assert.strictEqual(startup, manual);
+  assert.equal(calls, 1);
+  assert.deepEqual(starts, [{ automatic: false, shared: true }]);
+
+  pending.resolve({ status: 'available', version: '1.1.0', mode: 'automatic' });
+  assert.deepEqual(await startup, { status: 'available', version: '1.1.0', mode: 'automatic' });
+  assert.deepEqual(results, [{
+    result: { status: 'available', version: '1.1.0', mode: 'automatic' },
+    context: { automatic: true }
+  }]);
+  assert.equal(coordinator.getPromise(), null);
+});
+
+test('coordinator turns rejected checks into a sanitized error result', async () => {
+  const result = [];
+  const coordinator = createUpdateCheckCoordinator(
+    () => Promise.reject(new Error('private updater detail')),
+    { onResult: (value) => result.push(value) }
+  );
+  assert.deepEqual(await coordinator.run({ automatic: true }), { status: 'error' });
+  assert.deepEqual(result, [{ status: 'error' }]);
+});
 
 test('update UI maps every state to stable Japanese copy', () => {
   const checking = createUpdateViewModel({ status: 'checking' }, context);

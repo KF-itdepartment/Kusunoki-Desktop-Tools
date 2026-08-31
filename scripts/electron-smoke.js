@@ -58,6 +58,11 @@ async function run() {
   // the preload contract complete and prevent an expected app.version invoke
   // from becoming a false renderer-console error.
   ipcMain.handle('app.version', () => app.getVersion());
+  // app.js performs the same one-shot startup check as a packaged renderer.
+  // This harness intentionally does not load main.js/update-service.js, so
+  // provide the unpacked-build result explicitly instead of logging an IPC
+  // "No handler registered" error.
+  ipcMain.handle('updates.check', () => ({ status: 'disabled' }));
   const defaultSession = session.defaultSession;
   defaultSession.webRequest.onBeforeRequest({
     urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*']

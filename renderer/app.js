@@ -37,6 +37,7 @@
     updateInstallerPromise: null,
     updateReleasePromise: null
   };
+  let updateCheckCoordinator = null;
 
   const $ = (id) => document.getElementById(id);
   const navButtons = [...document.querySelectorAll('.nav-button')];
@@ -817,32 +818,35 @@
     if ((event.type === 'downloading' || event.type === 'installing') && dialog && !dialog.open) dialog.showModal();
   }
 
-  function checkUpdates() {
-    if (state.updateCheckPromise) return state.updateCheckPromise;
-    const button = $('check-update');
-    if (button) button.disabled = true;
-    showUpdateDialog({ status: 'checking', percent: 0 });
-    let request;
-    try {
-      request = desktop.updates.check();
-    } catch {
-      request = Promise.reject(new Error('update-check-failed'));
-    }
-    state.updateCheckPromise = Promise.resolve(request)
-      .then((result) => {
-        applyUpdateResult(result);
-        return result;
-      })
-      .catch(() => {
-        const result = { status: 'error' };
-        applyUpdateResult(result);
-        return result;
-      })
-      .finally(() => {
-        state.updateCheckPromise = null;
-        if (button) button.disabled = false;
-      });
-    return state.updateCheckPromise;
+  function getUpdateCheckCoordinator() {
+    if (updateCheckCoordinator) return updateCheckCoordinator;
+    updateCheckCoordinator = updateUi.createUpdateCheckCoordinator(
+      () => desktop.updates.check(),
+      {
+        onStart: ({ automatic }) => {
+          if (automatic) return;
+          const button = $('check-update');
+          if (button) button.disabled = true;
+          showUpdateDialog({ status: 'checking', percent: 0 });
+        },
+        onResult: (result, { automatic }) => {
+          applyUpdateResult(result);
+          if (automatic && updateUi.shouldShowAutomaticDialog(result)) showUpdateDialog({ status: 'available' });
+        },
+        onFinally: () => {
+          state.updateCheckPromise = null;
+          const button = $('check-update');
+          if (button) button.disabled = false;
+        }
+      }
+    );
+    return updateCheckCoordinator;
+  }
+
+  function checkUpdates(options = {}) {
+    const request = getUpdateCheckCoordinator().run(options);
+    state.updateCheckPromise = request;
+    return request;
   }
 
   function closeUpdateDialog() {
@@ -966,9 +970,16 @@
   }
 
   wireEvents();
-  desktop.app.getVersion().then((version) => {
+  Promise.resolve()
+    .then(() => desktop.app.getVersion())
+    .then((version) => {
     $('app-version').textContent=`v${version}`;
     state.update.currentVersion = String(version || '');
     renderUpdateDialog();
-  }).catch(()=>{});
+    })
+    .catch(()=>{})
+    // The service itself returns { status: 'disabled' } for unpacked builds.
+    // Running this once after renderer initialization keeps that behavior
+    // centralized while ensuring packaged apps discover updates on launch.
+    .finally(() => { void checkUpdates({ automatic: true }); });
 })();

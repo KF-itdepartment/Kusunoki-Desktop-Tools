@@ -16,9 +16,25 @@ function copyRendererFixture() {
 
 function copySourceFixture() {
   const fixture = copyRendererFixture();
-  fs.mkdirSync(path.join(fixture, 'vendor'), { recursive: true });
-  fs.cpSync(path.join(root, 'vendor', 'qr-generator'), path.join(fixture, 'vendor', 'qr-generator'), { recursive: true });
-  fs.cpSync(path.join(root, 'vendor', 'pdf-editor'), path.join(fixture, 'vendor', 'pdf-editor'), { recursive: true });
+  // Build the source fixture from committed generated files. The real
+  // upstreams are private submodules and are intentionally absent in public
+  // CI, so copying root/vendor here would make this test machine-dependent.
+  // QR source files are byte-for-byte identical to their generated fallback;
+  // the explicit .git marker makes inspectSource treat this as initialized.
+  const qrSource = path.join(fixture, 'vendor', 'qr-generator', 'public');
+  const qrGenerated = path.join(fixture, 'renderer', 'generated', 'upstream', 'qr');
+  fs.mkdirSync(path.join(qrSource, 'vendor'), { recursive: true });
+  for (const name of [
+    'index.html',
+    'script.js',
+    'batch-utils.mjs',
+    'logo.png',
+    'vendor/fflate.mjs',
+    'vendor/fflate.LICENSE.txt'
+  ]) {
+    fs.copyFileSync(path.join(qrGenerated, name), path.join(qrSource, name));
+  }
+  fs.writeFileSync(path.join(fixture, 'vendor', 'qr-generator', '.git'), 'gitdir: fixture\n', 'utf8');
   return fixture;
 }
 
@@ -54,6 +70,7 @@ test('verify uses committed generated fallback read-only when upstream sources a
   try {
     fs.mkdirSync(path.join(fixture, 'vendor', 'qr-generator'), { recursive: true });
     fs.mkdirSync(path.join(fixture, 'vendor', 'pdf-editor'), { recursive: true });
+    fs.mkdirSync(path.join(fixture, 'vendor', 'analytics-url-generator'), { recursive: true });
     const before = fs.readFileSync(path.join(fixture, 'renderer', 'vendor', 'MANIFEST.json'));
     const result = verifyUpstreams({ root: fixture });
     assert.deepEqual(result.sourceChecks, { qr: false, pdf: false, url: false });

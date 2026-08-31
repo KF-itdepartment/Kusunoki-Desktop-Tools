@@ -24,6 +24,58 @@
     return Math.max(0, Math.min(100, percent));
   }
 
+  // Startup checks are intentionally silent unless a newer release exists.
+  // Keep this decision separate from the view-model so an updater error (or a
+  // development build's disabled result) can never open a dialog by accident.
+  function shouldShowAutomaticDialog(result) {
+    return normalizeStatus(result?.status) === STATUS.AVAILABLE;
+  }
+
+  // Keep one in-flight check for both startup and user-triggered requests.
+  // Callers receive a sanitized error result, while the original exception
+  // remains available only to the caller's private logging path (if any).
+  function createUpdateCheckCoordinator(check, callbacks = {}) {
+    if (typeof check !== 'function') throw new TypeError('更新確認関数が不正です。');
+    const onStart = typeof callbacks.onStart === 'function' ? callbacks.onStart : () => {};
+    const onResult = typeof callbacks.onResult === 'function' ? callbacks.onResult : () => {};
+    const onFinally = typeof callbacks.onFinally === 'function' ? callbacks.onFinally : () => {};
+    let activePromise = null;
+
+    function run(options = {}) {
+      const automatic = options?.automatic === true;
+      if (activePromise) {
+        if (!automatic) onStart({ automatic: false, shared: true });
+        return activePromise;
+      }
+      if (!automatic) onStart({ automatic: false, shared: false });
+
+      let request;
+      try {
+        request = check();
+      } catch {
+        request = Promise.reject(new Error('update-check-failed'));
+      }
+      const current = Promise.resolve(request)
+        .then((result) => {
+          onResult(result, { automatic });
+          return result;
+        })
+        .catch(() => {
+          const result = { status: STATUS.ERROR };
+          onResult(result, { automatic });
+          return result;
+        })
+        .finally(() => {
+          if (activePromise === current) activePromise = null;
+          onFinally({ automatic });
+        });
+      activePromise = current;
+      return current;
+    }
+
+    return Object.freeze({ run, getPromise: () => activePromise });
+  }
+
   function versionText(value) {
     const version = String(value || '').trim().replace(/^v/iu, '');
     return version || '—';
@@ -111,6 +163,8 @@
     STATUS,
     normalizeStatus,
     normalizePercent,
+    shouldShowAutomaticDialog,
+    createUpdateCheckCoordinator,
     createUpdateViewModel,
     getUpdateViewModel: createUpdateViewModel,
     stateToViewModel: createUpdateViewModel
