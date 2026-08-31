@@ -36,14 +36,15 @@
     updateCheckPromise: null,
     updateInstallPromise: null,
     updateInstallerPromise: null,
-    updateReleasePromise: null
+    updateReleasePromise: null,
+    notificationTimer: null
   };
   let updateCheckCoordinator = null;
 
   const $ = (id) => document.getElementById(id);
-  const navButtons = [...document.querySelectorAll('.nav-button')];
   const views = [...document.querySelectorAll('.view')];
   const qrModeButtons = [...document.querySelectorAll('[data-qr-mode]')];
+  const allowedViewIds = new Set(['qr-view', 'pdf-view', 'pic-view', 'url-view', 'assets-view']);
 
   function setStatus(id, message, error = false) {
     const element = $(id);
@@ -101,17 +102,43 @@
     return '接続エラー';
   }
 
-  function setView(viewId) {
-    if (!views.some((view) => view.id === viewId)) return;
+  function notifyActiveView(viewId) {
+    if (typeof desktop?.navigation?.notifyActiveView !== 'function') return;
+    try { desktop.navigation.notifyActiveView(viewId); } catch { /* fixed IDs are checked in preload */ }
+  }
+
+  function setView(viewId, { notify = true } = {}) {
+    if (!allowedViewIds.has(viewId) || !views.some((view) => view.id === viewId)) return false;
     state.view = viewId;
     views.forEach((view) => { view.hidden = view.id !== viewId; view.classList.toggle('active', view.id === viewId); });
-    navButtons.forEach((button) => button.classList.toggle('active', button.dataset.view === viewId));
     const qrModeSwitch = $('qr-mode-switch');
     if (qrModeSwitch) qrModeSwitch.hidden = viewId !== 'qr-view';
     if (viewId === 'assets-view') void loadAssets();
+    if (notify) notifyActiveView(viewId);
+    return true;
   }
 
-  navButtons.forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
+  function showGlobalNotification(payload) {
+    const element = $('global-notification');
+    if (!element || !payload || typeof payload.message !== 'string') return;
+    element.textContent = payload.message;
+    element.dataset.kind = ['info', 'success', 'error'].includes(payload.kind) ? payload.kind : 'info';
+    element.hidden = false;
+    if (state.notificationTimer) clearTimeout(state.notificationTimer);
+    state.notificationTimer = setTimeout(() => { element.hidden = true; }, 5000);
+  }
+
+  function setupNavigation() {
+    if (typeof desktop?.navigation?.onOpenView === 'function') {
+      desktop.navigation.onOpenView((payload) => {
+        if (allowedViewIds.has(payload?.viewId)) setView(payload.viewId, { notify: false });
+      });
+    }
+    if (typeof desktop?.events?.onAssetsChanged === 'function') {
+      desktop.events.onAssetsChanged(() => { if (state.view === 'assets-view') void loadAssets(); });
+    }
+    if (typeof desktop?.events?.onNotification === 'function') desktop.events.onNotification(showGlobalNotification);
+  }
 
   function setupTabs() {
     const tabs = [$('single-tab'), $('batch-tab')];
@@ -754,10 +781,10 @@
   async function assetAction(event) {
     const button=event.target.closest('button[data-action]'); if (!button) return; const card=button.closest('.asset-card'); const id=card?.dataset.id; if (!id) return;
     try {
-      if (button.dataset.action==='asset-delete') { if (!window.confirm('この素材を削除しますか？')) return; await desktop.assets.delete(id); await loadAssets(); return; }
-      if (button.dataset.action==='asset-rename') { const name=window.prompt('新しい名前',card.querySelector('.asset-name').textContent); if (name) { await desktop.assets.rename(id,name); await loadAssets(); } return; }
+      if (button.dataset.action==='asset-delete') { if (!window.confirm('この素材を削除しますか？')) return; await desktop.assets.delete(id); return; }
+      if (button.dataset.action==='asset-rename') { const name=window.prompt('新しい名前',card.querySelector('.asset-name').textContent); if (name) await desktop.assets.rename(id,name); return; }
       const loaded=await desktop.assets.read(id); const data=normalizeBytes(loaded.data);
-      if (button.dataset.action==='asset-download') { downloadBytes(data,safeDownloadName(loaded.metadata.fileName,loaded.metadata.mimeType==='image/svg+xml'?'svg':loaded.metadata.mimeType==='image/jpeg'?'jpg':'png'),loaded.metadata.mimeType); return; }
+      if (button.dataset.action==='asset-download') { downloadBytes(data,safeDownloadName(loaded.metadata.fileName,loaded.metadata.mimeType==='image/svg+xml'?'svg':loaded.metadata.mimeType==='image/jpeg'?'jpg':loaded.metadata.mimeType==='image/webp'?'webp':'png'),loaded.metadata.mimeType); return; }
       state.pendingWatermark=generated.qr.createPdfHandoff(data, loaded.metadata.text, loaded.metadata.fileName, loaded.metadata.mimeType); setView('pdf-view'); sendPendingWatermark(); if (!state.pdfFrameReady) setStatus('pdf-frame-status','PDFエディターの準備後に素材を設定します。');
     } catch (error) { setStatus('pdf-status', error instanceof Error ? error.message : '素材操作に失敗しました。', true); }
   }
@@ -983,6 +1010,7 @@
   }
 
   function wireEvents() {
+    setupNavigation();
     setupPdfFrame();
     setupPicFrame();
     setupUpdateDialog();

@@ -1,13 +1,15 @@
 'use strict';
 
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, session } = require('electron');
+const { VIEW_DEFINITIONS, createMenuTemplate } = require('../electron/main');
 
 const root = path.resolve(__dirname, '..');
 const rendererIndex = path.join(root, 'renderer', 'index.html');
 const externalRequests = [];
 const consoleErrors = [];
 let smokeWindow = null;
+const activeViews = [];
 
 app.disableHardwareAcceleration();
 
@@ -41,6 +43,8 @@ async function inspectRenderer() {
         && picDocument.querySelector('#propsSection')
         && picDocument.querySelector('.layers-section');
       if (domReady && libraries && bridge && picReady && picCanvas && picControls) {
+        if (document.querySelector('.main-nav, .nav-button')) throw new Error('top navigation buttons must be provided by the native menu');
+        if (!document.getElementById('qr-mode-switch')) throw new Error('QR mode switch is missing');
         const japaneseLabels = ['画像', '文字', '長方形', '楕円', '線', '矢印', 'プロパティ', 'レイヤー'];
         const picText = picDocument.body?.textContent || '';
         if (!japaneseLabels.every((label) => picText.includes(label))) throw new Error('pic editor Japanese controls are missing');
@@ -55,6 +59,7 @@ async function inspectRenderer() {
         const layersAfter = picDocument.querySelectorAll('.layer-row').length;
         const shapeAdded = layersAfter > layersBefore && (statusText.includes('長方形') || statusText.length > 0);
         if (!shapeAdded) throw new Error('pic editor shape add smoke operation failed (layers ' + layersBefore + '->' + layersAfter + ', status ' + statusText + ')');
+        window.desktop.navigation.notifyActiveView('qr-view');
         return {
           frameSrc: frame.getAttribute('src'),
           childReadyState: childDocument.readyState,
@@ -74,7 +79,8 @@ async function inspectRenderer() {
           picLocalAssets: true,
           picSandboxAttribute: picFrame.hasAttribute('sandbox'),
           picShapeAdded: shapeAdded,
-          picWindow: Boolean(picWindow)
+          picWindow: Boolean(picWindow),
+          nativeMenuViewNotifications: true
         };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -86,11 +92,20 @@ async function inspectRenderer() {
 
 async function run() {
   await app.whenReady();
+  const nativeMenu = Menu.buildFromTemplate(createMenuTemplate({ onImport: () => {}, onExport: () => {}, onUpdate: () => {}, onRelease: () => {}, onView: () => {} }));
+  Menu.setApplicationMenu(nativeMenu);
+  const toolMenu = nativeMenu.items.find((item) => item.label === 'ツール');
+  if (!toolMenu || toolMenu.submenu.items.length !== VIEW_DEFINITIONS.length || !toolMenu.submenu.items.every((item, index) => item.type === 'radio' && item.accelerator === VIEW_DEFINITIONS[index].accelerator)) throw new Error('native tool menu is not configured as required');
   // The smoke entry point loads renderer/index.html directly (instead of the
   // application's main.js) so it can inspect the exact generated frame. Keep
   // the preload contract complete and prevent an expected app.version invoke
   // from becoming a false renderer-console error.
   ipcMain.handle('app.version', () => app.getVersion());
+  ipcMain.on('navigation.active-view', (_event, input) => {
+    const allowed = new Set(['qr-view', 'pdf-view', 'pic-view', 'url-view', 'assets-view']);
+    if (input && allowed.has(input.viewId)) activeViews.push(input.viewId);
+  });
+  ipcMain.handle('assets.list', () => []);
   // app.js performs the same one-shot startup check as a packaged renderer.
   // This harness intentionally does not load main.js/update-service.js, so
   // provide the unpacked-build result explicitly instead of logging an IPC
@@ -133,9 +148,10 @@ async function run() {
   if (!result.bridgeReady || result.frameSrc !== './generated/upstream/pdf/index.html' || result.picFrameSrc !== './generated/upstream/pic/index.html' || !result.picShapeAdded) {
     throw new Error(`unexpected generated upstream iframe result: ${JSON.stringify(result)}`);
   }
+  if (!activeViews.includes('qr-view')) throw new Error('renderer did not report its active view to the native menu');
   if (externalRequests.length) throw new Error(`external requests detected: ${externalRequests.join(', ')}`);
   if (consoleErrors.length) throw new Error(`renderer console errors: ${consoleErrors.join(' | ')}`);
-  console.log(JSON.stringify({ status: 'ok', ...result, externalRequests, consoleErrors }));
+  console.log(JSON.stringify({ status: 'ok', ...result, nativeMenuActiveViews: activeViews, externalRequests, consoleErrors }));
 }
 
 run().then(() => {

@@ -10,13 +10,6 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">K</span><span class="brand-title">Kusunoki Desktop Tools</span><small id="app-version">v1.0.0</small></div>
-    <nav class="main-nav" aria-label="アプリ切替">
-      <button class="nav-button active" type="button" data-view="qr-view">QRコード</button>
-      <button class="nav-button" type="button" data-view="pdf-view">PDFエディター</button>
-      <button class="nav-button" type="button" data-view="pic-view">画像エディター</button>
-      <button class="nav-button" type="button" data-view="url-view">UTM URL生成・短縮</button>
-      <button class="nav-button" type="button" data-view="assets-view">素材トレイ</button>
-    </nav>
     <div id="qr-mode-switch" class="qr-mode-switch" role="group" aria-label="QRコード生成方式">
       <span class="qr-mode-label">QR通信</span>
       <button id="qr-online-mode" class="mode-button active" type="button" data-qr-mode="online" aria-pressed="true">オンライン</button>
@@ -139,6 +132,7 @@
       </div>
     </section>
   </main>
+  <div id="global-notification" class="global-notification" role="status" aria-live="polite" hidden></div>
 
   <dialog id="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-description">
     <form method="dialog" class="update-dialog-card">

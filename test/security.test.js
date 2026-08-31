@@ -9,17 +9,15 @@ test('renderer has local-only CSP and no CDN references', () => {
   const html=fs.readFileSync(path.join(__dirname,'..','renderer','index.html'),'utf8');
   assert.match(html,/connect-src 'none'/); assert.match(html,/script-src 'self'/); assert.doesNotMatch(html,/unpkg|cdnjs|<script[^>]+src=["']https?:/iu);
   assert.match(html,/id="qr-online-mode"[^>]+data-qr-mode="online"[^>]+aria-pressed="true"/u);
-  const nav = html.match(/<nav class="main-nav"[\s\S]*?<\/nav>/u)?.[0];
-  assert.ok(nav, 'main navigation is present');
-  const navLabels = [...nav.matchAll(/<button[^>]*data-view="[^"]+"[^>]*>([^<]*)<\/button>/gu)].map((match) => match[1]);
-  assert.deepEqual(navLabels, ['QRコード', 'PDFエディター', '画像エディター', 'UTM URL生成・短縮', '素材トレイ']);
-  assert.equal(navLabels.at(-1), '素材トレイ');
+  assert.doesNotMatch(html, /<nav class="main-nav"/u);
+  assert.doesNotMatch(html, /class="nav-button"/u);
+  assert.match(html, /id="qr-mode-switch"/u);
   assert.match(html, /<h1 id="url-heading">UTM URL生成・短縮<\/h1>/u);
   assert.doesNotMatch(html, /URL短縮/u);
   assert.match(html,/generated\/upstream\/url\/config\.js/u);
   const preload=fs.readFileSync(path.join(__dirname,'..','electron','preload.js'),'utf8');
   assert.match(preload,/contextBridge/); assert.doesNotMatch(preload,/readFile|writeFile|shell\.openExternal/);
-  const main=fs.readFileSync(path.join(__dirname,'..','electron','main.js'),'utf8'); assert.match(main,/nodeIntegration:\s*false/); assert.match(main,/contextIsolation:\s*true/); assert.match(main,/sandbox:\s*true/);
+  const main=fs.readFileSync(path.join(__dirname,'..','electron','main.js'),'utf8'); assert.match(main,/nodeIntegration:\s*false/); assert.match(main,/contextIsolation:\s*true/); assert.match(main,/sandbox:\s*true/); assert.match(main,/label:\s*['"]ツール['"]/u); assert.match(main,/CmdOrCtrl\+5/u);
 });
 
 test('QR mode starts online, is not persisted, and online API stays in main process', () => {

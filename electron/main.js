@@ -1,5 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
 const { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } = require('electron');
 const { AssetStore } = require('./asset-store');
 const { ALLOWED_QR_MODES, QR_MODES, generateQrByMode } = require('./qr-service');
@@ -9,11 +10,21 @@ const { createUrlService } = require('./url-service');
 
 const RENDERER_DIRECTORY = path.resolve(__dirname, '..', 'renderer');
 const RELEASE_URL = 'https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases';
+const VIEW_DEFINITIONS = Object.freeze([
+  Object.freeze({ id: 'qr-view', label: 'QRコード', accelerator: 'CmdOrCtrl+1' }),
+  Object.freeze({ id: 'pdf-view', label: 'PDFエディター', accelerator: 'CmdOrCtrl+2' }),
+  Object.freeze({ id: 'pic-view', label: '画像エディター', accelerator: 'CmdOrCtrl+3' }),
+  Object.freeze({ id: 'url-view', label: 'UTM URL生成・短縮', accelerator: 'CmdOrCtrl+4' }),
+  Object.freeze({ id: 'assets-view', label: '素材トレイ', accelerator: 'CmdOrCtrl+5' })
+]);
+const ALLOWED_VIEW_IDS = new Set(VIEW_DEFINITIONS.map((item) => item.id));
+const MATERIAL_IMPORT_FILTERS = Object.freeze([{ name: '画像・素材アーカイブ', extensions: ['png', 'jpg', 'jpeg', 'webp', 'svg', 'zip'] }]);
 let mainWindow;
 let assetStore;
 let updateService;
 let urlService;
 let registered = false;
+let activeView = 'qr-view';
 
 function isTrustedSender(event) {
   const url = String(event?.senderFrame?.url || event?.sender?.getURL?.() || '');
@@ -35,6 +46,88 @@ function isTrustedSender(event) {
 
 function requireTrustedSender(event) {
   if (!isTrustedSender(event)) throw new Error('許可されていない送信元です。');
+}
+
+function assertViewId(value) {
+  if (typeof value !== 'string' || !ALLOWED_VIEW_IDS.has(value)) throw new TypeError('表示画面が不正です。');
+  return value;
+}
+
+function webContentsFor(target) {
+  if (target?.webContents) return target.webContents;
+  return target || null;
+}
+
+function updateMenuChecked(viewId) {
+  let menu;
+  try { menu = Menu.getApplicationMenu?.(); } catch { menu = null; }
+  if (!menu) return;
+  const visit = (items) => {
+    for (const item of items || []) {
+      if (typeof item.id === 'string' && item.id.startsWith('view-')) item.checked = item.id === `view-${viewId}`;
+      if (item.submenu) visit(item.submenu.items || item.submenu);
+    }
+  };
+  visit(menu.items);
+}
+
+function setActiveView(viewId, target = mainWindow, { notify = true } = {}) {
+  const accepted = assertViewId(viewId);
+  activeView = accepted;
+  updateMenuChecked(accepted);
+  if (notify) webContentsFor(target)?.send?.('navigation.open-view', { viewId: accepted });
+  return accepted;
+}
+
+function getActiveView() {
+  return activeView;
+}
+
+function sendRendererEvent(channel, payload, target = mainWindow) {
+  const contents = webContentsFor(target);
+  if (!contents || contents.isDestroyed?.()) return false;
+  contents.send(channel, payload);
+  return true;
+}
+
+function notificationPayload(message, kind = 'info') {
+  return { message: String(message || ''), kind: ['info', 'success', 'error'].includes(kind) ? kind : 'info' };
+}
+
+function sendNotification(message, kind = 'info', target = mainWindow) {
+  if (!message) return false;
+  return sendRendererEvent('app.notification', notificationPayload(message, kind), target);
+}
+
+function errorMessage(error, fallback = '処理に失敗しました。') {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message && message.length <= 240 ? message : fallback;
+}
+
+async function writeFileAtomic(filePath, data, { fsApi = fs.promises } = {}) {
+  const target = path.resolve(String(filePath));
+  const temporary = `${target}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  const backup = `${target}.${process.pid}.${Date.now()}.${randomUUID()}.bak`;
+  let movedOriginal = false;
+  try {
+    await fsApi.writeFile(temporary, data, { flag: 'wx', mode: 0o600 });
+    try {
+      await fsApi.stat(target);
+      await fsApi.rename(target, backup);
+      movedOriginal = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await fsApi.rename(temporary, target);
+    if (movedOriginal) await fsApi.rm(backup, { force: true }).catch(() => {});
+  } catch (error) {
+    await fsApi.rm(temporary, { force: true }).catch(() => {});
+    if (movedOriginal) {
+      await fsApi.rm(target, { force: true }).catch(() => {});
+      await fsApi.rename(backup, target).catch(() => {});
+    }
+    throw error;
+  }
 }
 
 function assertObject(value) {
@@ -147,8 +240,68 @@ function createApplicationWindow() {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file://')) event.preventDefault();
   });
+  mainWindow.webContents.on('did-finish-load', () => {
+    sendRendererEvent('navigation.open-view', { viewId: activeView }, mainWindow);
+  });
   mainWindow.loadFile(path.join(RENDERER_DIRECTORY, 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+async function importAssetsFromDialog({ dialogApi = dialog, store = assetStore, target = mainWindow } = {}) {
+  let result;
+  try {
+    result = await dialogApi.showOpenDialog(target, {
+      title: '素材をインポート',
+      properties: ['openFile', 'multiSelections'],
+      filters: MATERIAL_IMPORT_FILTERS
+    });
+  } catch (error) {
+    const message = errorMessage(error, '素材のインポートダイアログを開けません。');
+    dialogApi.showErrorBox?.('素材のインポートに失敗しました', message);
+    sendNotification(message, 'error', target);
+    return { status: 'error', count: 0, message };
+  }
+  if (!result || result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) return { status: 'cancelled', count: 0 };
+  try {
+    if (!store || typeof store.importPaths !== 'function') throw new Error('素材ストアを利用できません。');
+    const imported = await store.importPaths(result.filePaths);
+    setActiveView('assets-view', target);
+    sendRendererEvent('assets.changed', { action: 'import', count: imported.length }, target);
+    sendNotification(`${imported.length}件の素材をインポートしました。`, 'success', target);
+    return { status: 'imported', count: imported.length };
+  } catch (error) {
+    const message = errorMessage(error, '素材をインポートできません。');
+    dialogApi.showErrorBox?.('素材のインポートに失敗しました', message);
+    sendNotification(message, 'error', target);
+    return { status: 'error', count: 0, message };
+  }
+}
+
+async function exportAssetsToDialog({ dialogApi = dialog, store = assetStore, target = mainWindow } = {}) {
+  try {
+    if (!store || typeof store.exportArchive !== 'function') throw new Error('素材ストアを利用できません。');
+    const listedAssets = typeof store.list === 'function' ? await store.list() : null;
+    const archive = await store.exportArchive();
+    if (!archive) {
+      const message = 'エクスポートする素材がありません。';
+      sendNotification(message, 'info', target);
+      return { status: 'empty', count: 0 };
+    }
+    const result = await dialogApi.showSaveDialog(target, {
+      title: '素材をエクスポート',
+      defaultPath: 'kusunoki-materials.zip',
+      filters: [{ name: '素材アーカイブ', extensions: ['zip'] }]
+    });
+    if (!result || result.canceled || !result.filePath) return { status: 'cancelled', count: 0 };
+    await writeFileAtomic(result.filePath, archive);
+    sendNotification('素材をエクスポートしました。', 'success', target);
+    return { status: 'exported', count: Array.isArray(listedAssets) ? listedAssets.length : 0, filePath: result.filePath };
+  } catch (error) {
+    const message = errorMessage(error, '素材をエクスポートできません。');
+    dialogApi.showErrorBox?.('素材のエクスポートに失敗しました', message);
+    sendNotification(message, 'error', target);
+    return { status: 'error', count: 0, message };
+  }
 }
 
 function registerIpc() {
@@ -157,6 +310,15 @@ function registerIpc() {
   ipcMain.handle('app.version', (event) => {
     requireTrustedSender(event);
     return app.getVersion();
+  });
+  ipcMain.on('navigation.active-view', (event, input) => {
+    try {
+      requireTrustedSender(event);
+      const payload = assertObject(input);
+      setActiveView(assertViewId(payload.viewId), event.sender, { notify: false });
+    } catch {
+      // One-way renderer notifications have no error channel by design.
+    }
   });
   ipcMain.handle('qr.generate', async (event, input) => {
     requireTrustedSender(event);
@@ -178,7 +340,9 @@ function registerIpc() {
   });
   ipcMain.handle('assets.save', async (event, input) => {
     requireTrustedSender(event);
-    return assetStore.save(assertObject(input));
+    const [saved] = await assetStore.saveBatch([assertObject(input)]);
+    sendRendererEvent('assets.changed', { action: 'save', count: 1 }, event.sender);
+    return saved;
   });
   ipcMain.handle('assets.read', async (event, input) => {
     requireTrustedSender(event);
@@ -187,11 +351,15 @@ function registerIpc() {
   ipcMain.handle('assets.rename', async (event, input) => {
     requireTrustedSender(event);
     const payload = assertObject(input);
-    return assetStore.rename(payload.id, payload.name);
+    const renamed = await assetStore.rename(payload.id, payload.name);
+    sendRendererEvent('assets.changed', { action: 'rename', count: 1 }, event.sender);
+    return renamed;
   });
   ipcMain.handle('assets.delete', async (event, input) => {
     requireTrustedSender(event);
-    return assetStore.delete(assertObject(input).id);
+    const deleted = await assetStore.delete(assertObject(input).id);
+    sendRendererEvent('assets.changed', { action: 'delete', count: 1 }, event.sender);
+    return deleted;
   });
   ipcMain.handle('pdf.process', async (event, input) => {
     requireTrustedSender(event);
@@ -216,6 +384,47 @@ function registerIpc() {
   });
 }
 
+function createMenuTemplate({
+  version = app.getVersion(),
+  onImport = () => { void importAssetsFromDialog(); },
+  onExport = () => { void exportAssetsToDialog(); },
+  onView = (viewId, browserWindow) => { setActiveView(viewId, browserWindow || mainWindow); },
+  onUpdate = () => {},
+  onRelease = () => shell.openExternal(RELEASE_URL)
+} = {}) {
+  return [
+    {
+      label: 'ファイル',
+      submenu: [
+        { label: '素材をインポート…', click: onImport },
+        { label: '素材をエクスポート…', click: onExport },
+        { type: 'separator' },
+        { role: 'quit', label: '終了' }
+      ]
+    },
+    {
+      label: 'ツール',
+      submenu: VIEW_DEFINITIONS.map((view) => ({
+        id: `view-${view.id}`,
+        label: view.label,
+        type: 'radio',
+        checked: view.id === activeView,
+        accelerator: view.accelerator,
+        click: (_menuItem, browserWindow) => onView(view.id, browserWindow)
+      }))
+    },
+    {
+      label: 'ヘルプ',
+      submenu: [
+        { label: '更新を確認', click: onUpdate },
+        { type: 'separator' },
+        { label: `Kusunoki Desktop Tools v${version}`, enabled: false },
+        { label: 'Releaseページを開く', click: onRelease }
+      ]
+    }
+  ];
+}
+
 function configureMenu() {
   const openUpdateDialog = () => {
     if (!mainWindow || mainWindow.isDestroyed?.()) createApplicationWindow();
@@ -233,21 +442,7 @@ function configureMenu() {
       sendRequest();
     }
   };
-  const template = [
-    {
-      label: 'ファイル',
-      submenu: [{ role: 'quit', label: '終了' }]
-    },
-    {
-      label: 'ヘルプ',
-      submenu: [
-        { label: '更新を確認', click: openUpdateDialog },
-        { type: 'separator' },
-        { label: `Kusunoki Desktop Tools v${app.getVersion()}`, enabled: false },
-        { label: 'Releaseページを開く', click: () => shell.openExternal(RELEASE_URL) }
-      ]
-    }
-  ];
+  const template = createMenuTemplate({ onUpdate: openUpdateDialog });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -282,13 +477,23 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ALLOWED_VIEW_IDS,
+  MATERIAL_IMPORT_FILTERS,
   RELEASE_URL,
   RENDERER_DIRECTORY,
+  VIEW_DEFINITIONS,
   assertObject,
+  assertViewId,
   assertQrMode,
   assertHttpUrl,
+  createMenuTemplate,
   createUrlShortenHandler,
+  exportAssetsToDialog,
+  getActiveView,
+  importAssetsFromDialog,
   serializeUrlShortenError,
+  setActiveView,
+  writeFileAtomic,
   isTrustedSender,
   installSecurityPolicy
 };
