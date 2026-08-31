@@ -54,8 +54,45 @@ test('macOS release packages both explicit architectures and validates safe upda
   assert.match(macSection, /test "\$\{#arm64_dmgs\[@\]\}" -eq 1/u);
   assert.match(macSection, /test -s dist\/latest-mac\.yml/u);
   assert.doesNotMatch(macSection, /metadata_matches|grep -F.*latest-mac/u);
-  assert.match(workflow, /dist\/\*\.dmg/u);
+  assert.match(workflow, /dist\/\*-x64\.dmg/u);
   assert.match(workflow, /files:\s+release-assets\/\*\*/u);
+});
+
+test('release uploads only OS-specific updater assets and excludes builder debug metadata', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
+  const buildStart = workflow.indexOf('\n  build:');
+  const publishStart = workflow.indexOf('\n  publish:');
+  assert.ok(buildStart >= 0 && publishStart > buildStart, 'build and publish jobs must exist');
+  const build = workflow.slice(buildStart, publishStart);
+  const section = (name, nextName) => {
+    const start = build.indexOf(`- name: ${name}`);
+    const end = nextName ? build.indexOf(`- name: ${nextName}`, start) : build.length;
+    assert.ok(start >= 0 && end > start, `${name} upload step must exist`);
+    return build.slice(start, end);
+  };
+  const windows = section('Upload Windows installer and update metadata', 'Upload macOS installers and update metadata');
+  const mac = section('Upload macOS installers and update metadata', 'Upload Linux installer and update metadata');
+  const linux = section('Upload Linux installer and update metadata');
+
+  assert.match(windows, /if: matrix\.name == 'windows-x64'/u);
+  assert.match(windows, /dist\/\*\.exe\n/u);
+  assert.match(windows, /dist\/\*\.exe\.blockmap\n/u);
+  assert.match(windows, /dist\/latest\.yml\n/u);
+  assert.match(mac, /if: matrix\.name == 'macos-x64-arm64'/u);
+  assert.match(mac, /dist\/\*-x64\.dmg\n/u);
+  assert.match(mac, /dist\/\*-arm64\.dmg\n/u);
+  assert.match(mac, /dist\/\*-x64\.dmg\.blockmap\n/u);
+  assert.match(mac, /dist\/\*-arm64\.dmg\.blockmap\n/u);
+  assert.match(mac, /dist\/latest-mac\.yml\n/u);
+  assert.match(linux, /if: matrix\.name == 'linux-x64'/u);
+  assert.match(linux, /dist\/\*\.AppImage\n/u);
+  assert.match(linux, /dist\/latest-linux\.yml\n/u);
+
+  // Generic metadata globs reintroduce same-named debug files into every
+  // matrix artifact. Every upload path must stay explicit by OS and asset.
+  assert.doesNotMatch(build, /dist\/\*\.ya?ml\n/u);
+  assert.doesNotMatch(build, /dist\/\*\.blockmap\n/u);
+  assert.doesNotMatch(build, /builder-debug\.yml|builder-effective-config\.yaml/u);
 });
 
 test('public CI and release use committed generated artifacts without private submodules', () => {

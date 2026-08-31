@@ -116,17 +116,36 @@ jobs:
       - name: Package Linux x64 AppImage
         if: matrix.name == 'linux-x64'
         run: npm run pack -- --publish never --linux AppImage --x64
-      - name: Upload installers and update metadata
+      - name: Upload Windows installer and update metadata
+        if: matrix.name == 'windows-x64'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: |
             dist/*.exe
-            dist/*.dmg
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+      - name: Upload macOS installers and update metadata
+        if: matrix.name == 'macos-x64-arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/*-x64.dmg
+            dist/*-arm64.dmg
+            dist/*-x64.dmg.blockmap
+            dist/*-arm64.dmg.blockmap
+            dist/latest-mac.yml
+          if-no-files-found: error
+      - name: Upload Linux installer and update metadata
+        if: matrix.name == 'linux-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
             dist/*.AppImage
-            dist/*.yml
-            dist/*.yaml
-            dist/*.blockmap
+            dist/latest-linux.yml
           if-no-files-found: error
 
   publish:
