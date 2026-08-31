@@ -59,6 +59,25 @@
       "sha256": "2f7da07e2d69a49f45cf32eaef5e9e0bce5d41d016e00fa2acb918237625812d"
     }
   },
+  "url": {
+    "src/index.js": {
+      "source": "vendor/analytics-url-generator/src/index.js",
+      "sha256": "9f51555d91426ce44073760cf8a009fe9fba612f5e56a790941647093ed0cc17",
+      "commit": "b65e77c8600572f5ddac80b4bc78dde4476b5380"
+    },
+    "config.js": {
+      "source": "vendor/analytics-url-generator/src/index.js",
+      "sha256": "9f51555d91426ce44073760cf8a009fe9fba612f5e56a790941647093ed0cc17",
+      "generatedSha256": "0cce06c12fd29f1a805a4f9bbffbdba4c7e5494b210c3ce537547087c9d58987",
+      "commit": "b65e77c8600572f5ddac80b4bc78dde4476b5380"
+    },
+    "adapter.js": {
+      "source": "scripts/stage-vendors.js",
+      "sha256": "2984852e2a99c3220f65242cb4e06c9a2d559b1c986f1b0a7aeb6d154925ec73",
+      "generatedSha256": "2984852e2a99c3220f65242cb4e06c9a2d559b1c986f1b0a7aeb6d154925ec73",
+      "commit": "b65e77c8600572f5ddac80b4bc78dde4476b5380"
+    }
+  },
   "browser": {
     "pdfLib": "renderer/vendor/pdf-lib.min.js",
     "pdfjs": "renderer/vendor/pdf.min.js",

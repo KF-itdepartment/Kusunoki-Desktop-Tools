@@ -28,12 +28,27 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .batch-mode-panel[hidden] { display:none; }
 .batch-mode-panel .file-button { margin-top:13px; }
 .batch-csv-file { display:none; }
+.url-layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr); gap:20px; align-items:start; }
+.url-form h2,.url-results h2 { margin:0 0 18px; font-size:19px; }
+.url-results { display:grid; gap:14px; }
+.url-result-block { display:grid; gap:9px; padding:15px; border:1px solid var(--line); border-radius:11px; background:#fbfcfe; }
+.url-result-value { display:block; min-height:48px; overflow-wrap:anywhere; color:var(--ink); line-height:1.6; }
+.url-result-block .control-row { margin-top:2px; }
+.url-result-block .result-actions { justify-content:flex-start; }
+.url-result-block .result-actions button { min-height:36px; padding:0 11px; font-size:12px; }
+.url-form .form-grid { margin-top:0; }
+.url-form .form-grid + .form-grid,.url-form .form-field + .form-field,.url-form .form-grid + .form-field { margin-top:15px; }
+.url-form .muted { font-weight:400; }
 
 @media (max-width:1100px) {
   .topbar { gap:10px; padding:0 14px; }
   .nav-button { padding:0 8px; font-size:12px; }
   .nav-button.active::after { left:5px; right:5px; }
   .qr-mode-state { max-width:110px; }
+}
+
+@media (max-width:900px) {
+  .url-layout { grid-template-columns:1fr; }
 }
 
 @media (max-width:1000px) {

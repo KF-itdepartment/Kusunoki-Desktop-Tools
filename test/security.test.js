@@ -9,8 +9,9 @@ test('renderer has local-only CSP and no CDN references', () => {
   const html=fs.readFileSync(path.join(__dirname,'..','renderer','index.html'),'utf8');
   assert.match(html,/connect-src 'none'/); assert.match(html,/script-src 'self'/); assert.doesNotMatch(html,/unpkg|cdnjs|<script[^>]+src=["']https?:/iu);
   assert.match(html,/id="qr-online-mode"[^>]+data-qr-mode="online"[^>]+aria-pressed="true"/u);
-  assert.match(html,/URL短縮（準備中）/u);
-  assert.match(html,/<button[^>]+disabled[^>]+aria-disabled="true"[^>]*>URL短縮（準備中）<\/button>/u);
+  assert.match(html,/<button[^>]+data-view="url-view"[^>]*>URL短縮<\/button>/u);
+  assert.doesNotMatch(html,/URL短縮（準備中）/u);
+  assert.match(html,/generated\/upstream\/url\/config\.js/u);
   const preload=fs.readFileSync(path.join(__dirname,'..','electron','preload.js'),'utf8');
   assert.match(preload,/contextBridge/); assert.doesNotMatch(preload,/readFile|writeFile|shell\.openExternal/);
   const main=fs.readFileSync(path.join(__dirname,'..','electron','main.js'),'utf8'); assert.match(main,/nodeIntegration:\s*false/); assert.match(main,/contextIsolation:\s*true/); assert.match(main,/sandbox:\s*true/);

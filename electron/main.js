@@ -5,12 +5,14 @@ const { AssetStore } = require('./asset-store');
 const { ALLOWED_QR_MODES, QR_MODES, generateQrByMode } = require('./qr-service');
 const { processPdf } = require('./pdf-service');
 const { createUpdateService } = require('./update-service');
+const { createUrlService } = require('./url-service');
 
 const RENDERER_DIRECTORY = path.resolve(__dirname, '..', 'renderer');
 const RELEASE_URL = 'https://github.com/KF-itdepartment/Kusunoki-Desktop-Tools/releases';
 let mainWindow;
 let assetStore;
 let updateService;
+let urlService;
 let registered = false;
 
 function isTrustedSender(event) {
@@ -44,6 +46,61 @@ function assertQrMode(value) {
   const mode = value ?? QR_MODES.OFFLINE;
   if (!ALLOWED_QR_MODES.has(mode)) throw new TypeError('QR生成モードが不正です。');
   return mode;
+}
+
+function assertHttpUrl(value, label = 'URL') {
+  if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${label}が不正です。`);
+  let parsed;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new TypeError(`${label}が不正です。`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new TypeError(`${label}が不正です。`);
+  return parsed.toString();
+}
+
+const URL_SHORTEN_STATUS_MESSAGES = Object.freeze({
+  400: '短縮するURLまたは短縮IDを確認してください。',
+  401: '短縮サービスを利用できません。',
+  403: '短縮サービスを利用できません。',
+  409: 'その短縮IDは既に使用されています。',
+  429: '短縮サービスの利用が集中しています。しばらく待って再試行してください。',
+  500: '短縮サービスが一時的に利用できません。',
+  503: '短縮サービスが一時的に利用できません。'
+});
+
+function serializeUrlShortenError(error) {
+  const code = String(error?.code || '');
+  if (code === 'http') {
+    const status = Number(error?.status);
+    if (Object.prototype.hasOwnProperty.call(URL_SHORTEN_STATUS_MESSAGES, status)) {
+      return { code, status, message: URL_SHORTEN_STATUS_MESSAGES[status] };
+    }
+  }
+  if (code === 'timeout') return { code, message: '短縮サービスへの接続がタイムアウトしました。' };
+  if (code === 'network') return { code, message: '短縮サービスに接続できませんでした。' };
+  if (code === 'invalid-input') return { code, message: '短縮する入力内容を確認してください。' };
+  if (['content-type', 'invalid-json', 'invalid-response', 'response-read', 'too-large'].includes(code)) {
+    return { code: 'invalid-response', message: '短縮サービスから不正な応答が返りました。' };
+  }
+  return { code: 'unavailable', message: 'URLの短縮に失敗しました。' };
+}
+
+function createUrlShortenHandler(serviceProvider = () => urlService) {
+  const getService = typeof serviceProvider === 'function' ? serviceProvider : () => serviceProvider;
+  return async (event, input) => {
+    requireTrustedSender(event);
+    try {
+      const service = getService();
+      if (!service || typeof service.shorten !== 'function') {
+        return { ok: false, error: serializeUrlShortenError({ code: 'unavailable' }) };
+      }
+      return await service.shorten(assertObject(input));
+    } catch (error) {
+      return { ok: false, error: serializeUrlShortenError(error) };
+    }
+  };
 }
 
 function installSecurityPolicy() {
@@ -106,6 +163,14 @@ function registerIpc() {
     const payload = assertObject(input);
     const mode = assertQrMode(payload.mode);
     return generateQrByMode({ ...payload, mode }, path.resolve(__dirname, '..'));
+  });
+  ipcMain.handle('urls.shorten', createUrlShortenHandler());
+  ipcMain.handle('urls.open-external', async (event, input) => {
+    requireTrustedSender(event);
+    const payload = assertObject(input);
+    const url = assertHttpUrl(payload.url, '開くURL');
+    await shell.openExternal(url);
+    return { status: 'opened', url };
   });
   ipcMain.handle('assets.list', async (event) => {
     requireTrustedSender(event);
@@ -193,6 +258,7 @@ async function start() {
   await assetStore.init();
   const { autoUpdater } = require('electron-updater');
   updateService = createUpdateService({ app, autoUpdater, dialog, shell });
+  urlService = createUrlService();
   updateService.onEvent((event) => {
     if (!mainWindow || mainWindow.isDestroyed?.()) return;
     mainWindow.webContents.send('updates.status', event);
@@ -220,6 +286,9 @@ module.exports = {
   RENDERER_DIRECTORY,
   assertObject,
   assertQrMode,
+  assertHttpUrl,
+  createUrlShortenHandler,
+  serializeUrlShortenError,
   isTrustedSender,
   installSecurityPolicy
 };

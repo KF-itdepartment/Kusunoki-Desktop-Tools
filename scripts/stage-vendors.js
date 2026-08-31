@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const vm = require('node:vm');
 
 // Git checkouts can materialize text files with either LF or CRLF line
 // endings (notably when a developer stages the vendors on Windows and CI
@@ -29,10 +31,15 @@ const vendor = path.join(renderer, 'vendor');
 const generated = path.join(renderer, 'generated', 'upstream');
 const qrSource = path.join(root, 'vendor', 'qr-generator', 'public');
 const pdfSource = path.join(root, 'vendor', 'pdf-editor');
+const analyticsRoot = path.join(root, 'vendor', 'analytics-url-generator');
+const analyticsSource = path.join(analyticsRoot, 'src', 'index.js');
+const urlGenerated = path.join(generated, 'url');
+const ANALYTICS_COMMIT = 'b65e77c8600572f5ddac80b4bc78dde4476b5380';
 
 fs.mkdirSync(vendor, { recursive: true });
 fs.mkdirSync(path.join(generated, 'qr'), { recursive: true });
 fs.mkdirSync(path.join(generated, 'pdf'), { recursive: true });
+fs.mkdirSync(urlGenerated, { recursive: true });
 
 function requireFile(file) {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -100,7 +107,7 @@ function readFallbackManifest() {
   } catch (error) {
     throw new Error(`committed upstream manifest is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!manifest || manifest.schema !== 2 || !manifest.upstream?.qr || !manifest.upstream?.pdf || !manifest.adapter?.sha256) {
+  if (!manifest || manifest.schema !== 3 || !manifest.upstream?.qr || !manifest.upstream?.pdf || !manifest.upstream?.url || !manifest.adapter?.sha256) {
     throw new Error('committed upstream manifest is incomplete; cannot safely use generated fallback.');
   }
   return manifest;
@@ -130,6 +137,12 @@ function validateFallbackArtifacts(manifest, needQr, needPdf) {
       assertFallbackHash(`renderer/generated/upstream/qr/${name}`, expected, `QR ${name}`);
     }
   }
+  if (manifest.upstream?.url) {
+    for (const name of ['config.js', 'adapter.js']) {
+      const entry = manifest.upstream.url[name];
+      assertFallbackHash(`renderer/generated/upstream/url/${name}`, entry?.generatedSha256 || entry?.sha256, `URL ${name}`);
+    }
+  }
   if (needPdf) {
     for (const name of pdfFiles) {
       const entry = manifest.upstream.pdf[name];
@@ -154,8 +167,103 @@ const pdfFiles = ['index.html', 'script.js', 'SPECIFICATION.md'];
 const forceFallback = isTruthy(process.env.KUSUNOKI_STAGE_FALLBACK);
 const qrSourceReady = !forceFallback && hasCompleteSource(qrSource, qrFiles);
 const pdfSourceReady = !forceFallback && hasCompleteSource(pdfSource, pdfFiles);
-const fallbackManifest = (!qrSourceReady || !pdfSourceReady) ? readFallbackManifest() : null;
+const analyticsSourceReady = !forceFallback && fs.existsSync(analyticsSource) && fs.statSync(analyticsSource).isFile();
+const fallbackManifest = (!qrSourceReady || !pdfSourceReady || !analyticsSourceReady) ? readFallbackManifest() : null;
 if (fallbackManifest) validateFallbackArtifacts(fallbackManifest, !qrSourceReady, !pdfSourceReady);
+
+function readSubmoduleCommit(directory) {
+  try {
+    const marker = path.join(directory, '.git');
+    const markerText = fs.readFileSync(marker, 'utf8').trim();
+    const gitDirectory = markerText.startsWith('gitdir:')
+      ? path.resolve(directory, markerText.slice('gitdir:'.length).trim())
+      : marker;
+    const head = fs.readFileSync(path.join(gitDirectory, 'HEAD'), 'utf8').trim();
+    if (/^[a-f0-9]{40,128}$/iu.test(head)) return head.toLowerCase();
+    const ref = head.match(/^ref:\s*(.+)$/u);
+    if (ref) return fs.readFileSync(path.join(gitDirectory, ref[1]), 'utf8').trim().toLowerCase();
+  } catch {
+    // Fall through to git for non-standard submodule layouts.
+  }
+  try {
+    return String(execFileSync('git', ['-C', directory, 'rev-parse', 'HEAD'], { encoding: 'utf8' }) || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function extractOptionArray(sourceText, constantName) {
+  const match = sourceText.match(new RegExp(`\\bconst\\s+${constantName}\\s*=\\s*(\\[[\\s\\S]*?\\]);`));
+  if (!match) throw new Error(`analytics upstream contract is missing ${constantName}.`);
+  let options;
+  try {
+    options = vm.runInNewContext(`(${match[1]})`, Object.create(null), { timeout: 1000 });
+  } catch {
+    throw new Error(`analytics upstream ${constantName} is not a static option array.`);
+  }
+  if (!Array.isArray(options) || options.length === 0 || options.some((item) => !item || typeof item !== 'object' || Array.isArray(item) || typeof item.value !== 'string' || typeof item.label !== 'string' || !item.value || !item.label)) {
+    throw new Error(`analytics upstream ${constantName} has an invalid option shape.`);
+  }
+  const values = new Set();
+  return options.map((item) => {
+    if (values.has(item.value)) throw new Error(`analytics upstream ${constantName} contains duplicate option values.`);
+    values.add(item.value);
+    return { value: item.value, label: item.label };
+  });
+}
+
+function validateAnalyticsContract(sourceText) {
+  const required = [
+    [/\bSOURCE_OPTIONS\b/u, 'SOURCE_OPTIONS'],
+    [/\bMEDIUM_OPTIONS\b/u, 'MEDIUM_OPTIONS'],
+    [/['"]\/api\/shorten['"]/u, '/api/shorten'],
+    [/longUrl/u, 'longUrl request field'],
+    [/shortid/u, 'shortid request field'],
+    [/shortUrl/u, 'shortUrl response field']
+  ];
+  for (const [pattern, label] of required) {
+    if (!pattern.test(sourceText)) throw new Error(`analytics upstream contract is missing ${label}.`);
+  }
+  if (!/method\s*:\s*['"]POST['"]/u.test(sourceText) || !/JSON\.stringify\s*\(/u.test(sourceText)) {
+    throw new Error('analytics upstream /api/shorten request contract is invalid.');
+  }
+}
+
+let urlManifest;
+let urlConfig;
+const urlConfigPath = path.join(urlGenerated, 'config.js');
+const urlAdapterPath = path.join(urlGenerated, 'adapter.js');
+if (analyticsSourceReady) {
+  const commit = readSubmoduleCommit(analyticsRoot);
+  if (commit !== ANALYTICS_COMMIT) {
+    throw new Error(`analytics-url-generator must be pinned to ${ANALYTICS_COMMIT}; found ${commit || '(unknown)'}.`);
+  }
+  const sourceText = fs.readFileSync(analyticsSource, 'utf8');
+  validateAnalyticsContract(sourceText);
+  const sourceOptions = extractOptionArray(sourceText, 'SOURCE_OPTIONS');
+  const mediumOptions = extractOptionArray(sourceText, 'MEDIUM_OPTIONS');
+  urlConfig = {
+    sourceOptions,
+    mediumOptions,
+    SOURCE_OPTIONS: sourceOptions,
+    MEDIUM_OPTIONS: mediumOptions,
+    upstreamCommit: ANALYTICS_COMMIT,
+    source: 'vendor/analytics-url-generator/src/index.js',
+    sourceSha256: hash(analyticsSource)
+  };
+  const configBody = `'use strict';\n\n// Generated from vendor/analytics-url-generator/src/index.js. Do not edit by hand.\n(() => {\n  const sourceOptions = ${JSON.stringify(sourceOptions, null, 2)};\n  const mediumOptions = ${JSON.stringify(mediumOptions, null, 2)};\n  const metadata = ${JSON.stringify({ upstreamCommit: ANALYTICS_COMMIT, source: 'vendor/analytics-url-generator/src/index.js', sourceSha256: hash(analyticsSource) }, null, 2)};\n  const config = { sourceOptions, mediumOptions, SOURCE_OPTIONS: sourceOptions, MEDIUM_OPTIONS: mediumOptions, ...metadata };\n  window.KusunokiUrlConfig = Object.freeze(config);\n})();\n`;
+  writeUtf8(urlConfigPath, configBody);
+  const adapterBody = `'use strict';\n\n// Generated from the analytics URL upstream config. Do not edit by hand.\n(() => {\n  const config = window.KusunokiUrlConfig;\n  if (!config || !Array.isArray(config.sourceOptions) || !Array.isArray(config.mediumOptions)) throw new Error('生成済みURL設定を読み込めません。');\n  window.KusunokiGeneratedUrl = Object.freeze({ config, source: 'generated/upstream/url/config.js', sourceHash: config.sourceSha256 });\n})();\n`;
+  writeUtf8(urlAdapterPath, adapterBody);
+  urlManifest = {
+    'src/index.js': { source: 'vendor/analytics-url-generator/src/index.js', sha256: hash(analyticsSource), commit: ANALYTICS_COMMIT },
+    'config.js': { source: 'vendor/analytics-url-generator/src/index.js', sha256: hash(analyticsSource), generatedSha256: hash(urlConfigPath), commit: ANALYTICS_COMMIT },
+    'adapter.js': { source: 'scripts/stage-vendors.js', sha256: hash(urlAdapterPath), generatedSha256: hash(urlAdapterPath), commit: ANALYTICS_COMMIT }
+  };
+} else {
+  urlManifest = clone(fallbackManifest.upstream.url);
+  urlConfig = null;
+}
 
 // Stage browser dependencies from npm. The generated upstream PDF page is
 // transformed below to use these exact local filenames.
@@ -282,6 +390,7 @@ const adapter = `'use strict';\n\n// Generated by scripts/stage-vendors.js. Do n
   generatedBy: 'scripts/stage-vendors.js',
   qr: qrManifest,
   pdf: pdfManifest,
+  url: urlManifest,
   browser: {
     pdfLib: 'renderer/vendor/pdf-lib.min.js',
     pdfjs: 'renderer/vendor/pdf.min.js',
@@ -296,11 +405,12 @@ const hardenedAdapter = adapter.replace(
 writeUtf8(path.join(renderer, 'generated', 'upstream-adapter.js'), hardenedAdapter);
 
 const manifest = {
-  schema: 2,
+  schema: 3,
   generatedBy: 'scripts/stage-vendors.js',
   upstream: {
     qr: qrManifest,
-    pdf: pdfManifest
+    pdf: pdfManifest,
+    url: urlManifest
   },
   browser: {
     pdfLib: { package: 'pdf-lib', file: 'pdf-lib.min.js', sha256: hash(path.join(vendor, 'pdf-lib.min.js')) },
@@ -325,9 +435,19 @@ const manifest = {
     pdfDataUrl: {
       file: 'renderer/generated/upstream/pdf/pdf-data-url.js',
       sha256: hash(pdfDataUrlHelperPath)
+    },
+    urlConfig: {
+      file: 'renderer/generated/upstream/url/config.js',
+      source: 'vendor/analytics-url-generator/src/index.js',
+      sha256: hash(urlConfigPath)
+    },
+    urlAdapter: {
+      file: 'renderer/generated/upstream/url/adapter.js',
+      source: 'scripts/stage-vendors.js',
+      sha256: hash(urlAdapterPath)
     }
   }
 };
 writeUtf8(path.join(vendor, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log(`Staged ${Object.keys(qrManifest).length} QR and ${Object.keys(pdfManifest).length} PDF upstream files plus local browser assets (QR: ${qrSourceReady ? 'submodule' : 'committed fallback'}, PDF: ${pdfSourceReady ? 'submodule' : 'committed fallback'}).`);
+console.log(`Staged ${Object.keys(qrManifest).length} QR, ${Object.keys(pdfManifest).length} PDF, and ${Object.keys(urlManifest).length} URL upstream files plus local browser assets (QR: ${qrSourceReady ? 'submodule' : 'committed fallback'}, PDF: ${pdfSourceReady ? 'submodule' : 'committed fallback'}, URL: ${analyticsSourceReady ? 'submodule' : 'committed fallback'}).`);

@@ -14,7 +14,7 @@
       <button class="nav-button active" type="button" data-view="qr-view">QRコード</button>
       <button class="nav-button" type="button" data-view="pdf-view">PDFエディター</button>
       <button class="nav-button" type="button" data-view="assets-view">素材トレイ</button>
-      <button class="nav-button" type="button" disabled aria-disabled="true" tabindex="-1">URL短縮（準備中）</button>
+      <button class="nav-button" type="button" data-view="url-view">URL短縮</button>
     </nav>
     <div class="qr-mode-switch" role="group" aria-label="QRコード生成方式">
       <span class="qr-mode-label">QR通信</span>
@@ -101,6 +101,34 @@
       <div class="section-heading"><div><p class="eyebrow">PERSISTENT MATERIALS</p><h1 id="assets-heading">素材トレイ</h1><p>保存したQR画像は再起動後も利用できます。ファイルはアプリのuserData配下へ安全に保存されます。</p></div><button id="refresh-assets" class="secondary">再読み込み</button></div>
       <div id="asset-list" class="asset-grid"></div><div id="asset-empty" class="empty-state">保存された素材はありません</div>
     </section>
+
+    <section id="url-view" class="view" aria-labelledby="url-heading" hidden>
+      <div class="section-heading"><div><p class="eyebrow">UTM URL WORKSPACE</p><h1 id="url-heading">URL短縮</h1><p>UTM付きの長いURLをローカルで生成し、必要に応じて固定Worker経由で短縮します。</p></div></div>
+      <div class="url-layout">
+        <form id="url-form" class="panel url-form" novalidate>
+          <h2>URLを作成</h2>
+          <div class="form-field"><label for="base-url">base URL <span class="muted">必須</span></label><input id="base-url" name="base-url" type="url" value="https://kusunokisai.com" placeholder="https://example.com/page" autocomplete="url" required></div>
+          <div class="form-grid two-column">
+            <div class="form-field"><label for="utm-source">utm_source</label><select id="utm-source" name="utm-source"></select></div>
+            <div class="form-field"><label for="utm-medium">utm_medium</label><select id="utm-medium" name="utm-medium"></select></div>
+          </div>
+          <div class="form-grid two-column">
+            <div id="source-custom-wrap" class="form-field" hidden><label for="utm-source-custom">utm_sourceの手入力値</label><input id="utm-source-custom" name="utm-source-custom" type="text" maxlength="256" placeholder="例: school_event"></div>
+            <div id="medium-custom-wrap" class="form-field" hidden><label for="utm-medium-custom">utm_mediumの手入力値</label><input id="utm-medium-custom" name="utm-medium-custom" type="text" maxlength="256" placeholder="例: offline"></div>
+          </div>
+          <div class="form-field"><label for="utm-campaign">キャンペーン名 <span class="muted">(utm_campaign)</span></label><input id="utm-campaign" name="utm-campaign" type="text" value="kusunoki2026" maxlength="256" required></div>
+          <div class="form-field"><label for="shortid">shortid <span class="muted">任意</span></label><input id="shortid" name="shortid" type="text" inputmode="text" maxlength="15" pattern="[0-9a-zA-Z_]{6,15}" placeholder="6〜15文字の英数字または_"></div>
+          <div class="control-row"><button id="url-generate-btn" class="primary" type="submit">URLを生成</button><button id="url-reset-btn" class="secondary" type="button">入力を初期化</button></div>
+          <p id="url-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+        <aside class="panel url-results" aria-labelledby="url-result-heading">
+          <h2 id="url-result-heading">結果</h2>
+          <div class="url-result-block"><div class="result-label">長いURL</div><output id="long-url" class="url-result-value">未生成</output><div class="control-row result-actions"><button id="copy-long-url" class="secondary" type="button" disabled>コピー</button><button id="open-long-url" class="secondary" type="button" disabled>外部で開く</button><button id="qr-long-url" class="secondary" type="button" disabled>QRコードを生成</button></div></div>
+          <div class="url-result-block"><div class="result-label">短縮URL</div><output id="short-url" class="url-result-value">未生成</output><div class="control-row result-actions"><button id="copy-short-url" class="secondary" type="button" disabled>コピー</button><button id="open-short-url" class="secondary" type="button" disabled>外部で開く</button><button id="qr-short-url" class="secondary" type="button" disabled>QRコードを生成</button></div></div>
+          <p class="help">短縮に失敗した場合も、長いURLはコピー・外部表示・QR生成に利用できます。</p>
+        </aside>
+      </div>
+    </section>
   </main>
 
   <dialog id="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-description">
@@ -130,8 +158,11 @@
   <!-- batch-utils and this generated bridge are produced from the QR/PDF
        submodules by scripts/stage-vendors.js. -->
   <script src="./generated/upstream/qr/batch-utils.js"></script>
+  <script src="./generated/upstream/url/config.js"></script>
+  <script src="./generated/upstream/url/adapter.js"></script>
   <script src="./generated/upstream-adapter.js"></script>
   <script src="./update-ui.js"></script>
+  <script src="./url-utils.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
   qr: Object.freeze({
     generate: (payload) => invoke('qr.generate', payload)
   }),
+  urls: Object.freeze({
+    shorten: (payload) => invoke('urls.shorten', payload),
+    openExternal: (url) => invoke('urls.open-external', { url })
+  }),
   assets: Object.freeze({
     list: () => invoke('assets.list'),
     save: (payload) => invoke('assets.save', payload),

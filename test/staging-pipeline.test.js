@@ -79,7 +79,7 @@ test('vendor stage is reproducible and generated output is the renderer input', 
   const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
-  assert.equal(manifest.schema, 2);
+  assert.equal(manifest.schema, 3);
   assert.equal(manifest.upstream.qr['script.js'].source, 'vendor/qr-generator/public/script.js');
   assert.equal(manifest.upstream.pdf['script.js'].source, 'vendor/pdf-editor/script.js');
   const pdfScriptSourcePath = path.join(root, 'vendor', 'pdf-editor', 'script.js');

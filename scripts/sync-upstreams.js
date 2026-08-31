@@ -5,9 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
+const ANALYTICS_COMMIT = 'b65e77c8600572f5ddac80b4bc78dde4476b5380';
 const ENTRIES = Object.freeze([
   Object.freeze({ relative: 'vendor/qr-generator', url: 'https://github.com/KF-itdepartment/QR-Generator.git' }),
-  Object.freeze({ relative: 'vendor/pdf-editor', url: 'https://github.com/KF-itdepartment/pdf-editor.git' })
+  Object.freeze({ relative: 'vendor/pdf-editor', url: 'https://github.com/KF-itdepartment/pdf-editor.git' }),
+  Object.freeze({ relative: 'vendor/analytics-url-generator', url: 'https://github.com/KF-itdepartment/analytics_url_generator.git', pinned: ANALYTICS_COMMIT })
 ]);
 
 // These are the only parent-repository paths this command may update. A
@@ -17,6 +19,7 @@ const ENTRIES = Object.freeze([
 const MANAGED_PATHS = Object.freeze([
   'vendor/qr-generator',
   'vendor/pdf-editor',
+  'vendor/analytics-url-generator',
   'renderer/generated',
   'renderer/vendor'
 ]);
@@ -84,6 +87,12 @@ function ensureParentPathsClean(root, runGit) {
 }
 
 function fetchedSha(entry, directory, runGit) {
+  if (entry.pinned) {
+    if (!/^[a-f0-9]{7,128}$/iu.test(String(entry.pinned))) {
+      throw new Error(`${entry.relative}: pinned commit id is invalid.`);
+    }
+    return String(entry.pinned).toLowerCase();
+  }
   const value = String(invokeGit(
     runGit,
     directory,
@@ -105,8 +114,8 @@ function main(options = {}) {
   const runGit = options.runGit || defaultGit;
   const runStage = options.runStage || defaultStage;
 
-  if (!Array.isArray(entries) || entries.length !== 2) {
-    throw new Error('sync-upstreams requires exactly the QR and PDF upstream entries.');
+  if (!Array.isArray(entries) || entries.length !== 3) {
+    throw new Error('sync-upstreams requires exactly the QR, PDF, and analytics URL upstream entries.');
   }
 
   const directories = new Map();

@@ -56,7 +56,7 @@ test('verify uses committed generated fallback read-only when upstream sources a
     fs.mkdirSync(path.join(fixture, 'vendor', 'pdf-editor'), { recursive: true });
     const before = fs.readFileSync(path.join(fixture, 'renderer', 'vendor', 'MANIFEST.json'));
     const result = verifyUpstreams({ root: fixture });
-    assert.deepEqual(result.sourceChecks, { qr: false, pdf: false });
+    assert.deepEqual(result.sourceChecks, { qr: false, pdf: false, url: false });
     assert.deepEqual(fs.readFileSync(path.join(fixture, 'renderer', 'vendor', 'MANIFEST.json')), before);
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
@@ -123,8 +123,8 @@ test('sync fetches both upstreams before checkout and stages without commit or p
     });
     const fetchIndexes = calls.map((call, index) => call.args[0] === 'fetch' ? index : -1).filter((index) => index >= 0);
     const checkoutIndexes = calls.map((call, index) => call.args[0] === 'checkout' ? index : -1).filter((index) => index >= 0);
-    assert.equal(fetchIndexes.length, 2);
-    assert.equal(checkoutIndexes.length, 2);
+    assert.equal(fetchIndexes.length, 3);
+    assert.equal(checkoutIndexes.length, 3);
     assert.ok(Math.max(...fetchIndexes) < Math.min(...checkoutIndexes));
     assert.ok(staged);
     assert.equal(calls.some((call) => ['commit', 'push'].includes(call.args[0])), false);

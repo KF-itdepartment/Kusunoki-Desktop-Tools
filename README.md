@@ -56,6 +56,12 @@ npm run verify:upstreams
 
 private upstreamをGitHub Actionsから同期する場合だけ、統合repoの Settings → Secrets and variables → Actions に `UPSTREAM_TOKEN` を登録します。Fine-grained PATまたは組織管理secretを使用し、対象は `KF-itdepartment/QR-Generator` と `KF-itdepartment/pdf-editor`、権限は各repoの `Contents: Read` のみにしてください。Actions workflowはこのtokenをupstreamのread checkoutにだけ渡し、統合repoへのcommit/pushにはGitHub Actionsの `GITHUB_TOKEN` を使います。広範な個人OAuth tokenや書き込み権限tokenを流用しないでください。`UPSTREAM_TOKEN` が未設定なら同期jobは `private upstream sync disabled` をjob summaryへ記録して成功終了します。
 
+## URL upstream / UPSTREAM_TOKEN
+
+The URL shortening upstream is the third read-only submodule `vendor/analytics-url-generator` (`https://github.com/KF-itdepartment/analytics_url_generator.git`), pinned to commit `b65e77c8600572f5ddac80b4bc78dde4476b5380`. Its `SOURCE_OPTIONS` and `MEDIUM_OPTIONS` are extracted from `src/index.js` into `renderer/generated/upstream/url/config.js`; the generated config and adapter are tracked by MANIFEST schema 3. UTM URL construction stays local to the renderer. Only the fixed Worker endpoint is called by the main process for shortening, and x.gd credentials remain Worker secrets.
+
+When `UPSTREAM_TOKEN` is configured for GitHub Actions, grant read-only `Contents` access to `KF-itdepartment/QR-Generator`, `KF-itdepartment/pdf-editor`, and `KF-itdepartment/analytics_url_generator`. The workflow passes that token only to upstream read checkouts; the integration repository continues to use `GITHUB_TOKEN` for its own commit/push.
+
 ## リリース
 
 `.github/workflows/release.yml` は、最初の `main` 更新では `package.json` の `1.0.0` を変更せず、候補のテスト/build成功後に検証済みSHAを3OSへ渡し、全OS成果物の成功後にだけ `v1.0.0` tagとGitHub Releaseを作成します。既存tagに対応する次回以降だけpatch番号を上げ、候補のテスト/build成功後にversion commitをpushします。version commitだけに付ける `[release-version]` markerとconcurrencyでbumpの無限ループを防ぎます。公開先は `KF-itdepartment/Kusunoki-Desktop-Tools` です。

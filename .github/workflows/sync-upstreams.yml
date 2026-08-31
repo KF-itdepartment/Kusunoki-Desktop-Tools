@@ -16,7 +16,7 @@ jobs:
   candidate:
     runs-on: ubuntu-latest
     steps:
-      # The integration repository is public, but both upstream repositories
+      # The integration repository is public, but all upstream repositories
       # are private. Never ask the default integration token to clone them.
       - uses: actions/checkout@v4
         with:
@@ -55,6 +55,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           token: ${{ secrets.UPSTREAM_TOKEN }}
+      - name: Checkout analytics URL upstream with read-only token
+        if: steps.upstream-access.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: KF-itdepartment/analytics_url_generator
+          ref: b65e77c8600572f5ddac80b4bc78dde4476b5380
+          path: vendor/analytics-url-generator
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.UPSTREAM_TOKEN }}
       - uses: actions/setup-node@v4
         if: steps.upstream-access.outputs.enabled == 'true'
         with:
@@ -77,7 +87,7 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           # The gitlinks and generated integration artifacts are one tested
           # candidate. Do not commit a submodule update without its stage.
-          git add .gitmodules vendor/qr-generator vendor/pdf-editor renderer/generated renderer/vendor/MANIFEST.json
+          git add .gitmodules vendor/qr-generator vendor/pdf-editor vendor/analytics-url-generator renderer/generated renderer/vendor/MANIFEST.json
           if git diff --cached --quiet; then
             echo 'No upstream changes.'
             exit 0

@@ -4,6 +4,8 @@
   const desktop = window.desktop;
   const generated = window.KusunokiGeneratedUpstream;
   if (!generated) throw new Error('Generated upstream adapter is required.');
+  const urlUtils = window.KusunokiUrlUtils;
+  if (!urlUtils) throw new Error('URL utility module is required.');
   const updateUi = window.KusunokiUpdateUI;
   if (!updateUi) throw new Error('Update UI module is required.');
   const state = {
@@ -25,6 +27,10 @@
     objectUrls: new Set(),
     draggedPdfIndex: null,
     pdfFrameReady: false,
+    urlBusy: false,
+    urlLongUrl: '',
+    urlShortUrl: '',
+    urlRequestPromise: null,
     update: { status: 'checking', currentVersion: '', latestVersion: '', version: '', mode: 'automatic', percent: 0 },
     updateCheckPromise: null,
     updateInstallPromise: null,
@@ -122,6 +128,181 @@
         if (next !== null) { event.preventDefault(); select(next, true); }
       });
     });
+  }
+
+  function setUrlResults(longUrl = '', shortUrl = '') {
+    state.urlLongUrl = String(longUrl || '');
+    state.urlShortUrl = String(shortUrl || '');
+    const longElement = $('long-url');
+    const shortElement = $('short-url');
+    if (longElement) longElement.textContent = state.urlLongUrl || '未生成';
+    if (shortElement) shortElement.textContent = state.urlShortUrl || '未生成';
+    [['copy-long-url', state.urlLongUrl], ['open-long-url', state.urlLongUrl], ['qr-long-url', state.urlLongUrl], ['copy-short-url', state.urlShortUrl], ['open-short-url', state.urlShortUrl], ['qr-short-url', state.urlShortUrl]].forEach(([id, value]) => {
+      const button = $(id);
+      if (button) button.disabled = !value;
+    });
+  }
+
+  function urlErrorMessage(error) {
+    const code = String(error?.code || '');
+    if (code === 'timeout') return '短縮サービスへの接続がタイムアウトしました。';
+    if (code === 'network') return '短縮サービスに接続できませんでした。';
+    if (code === 'content-type' || code === 'invalid-json' || code === 'invalid-response' || code === 'response-read' || code === 'too-large') return '短縮サービスから不正な応答が返りました。';
+    if (code === 'http') {
+      const status = Number(error?.status);
+      if (status === 400) return '短縮するURLまたは短縮IDを確認してください。';
+      if (status === 401 || status === 403) return '短縮サービスを利用できません。';
+      if (status === 409) return 'その短縮IDは既に使用されています。';
+      if (status === 429) return '短縮サービスの利用が集中しています。しばらく待って再試行してください。';
+      if (status === 500 || status === 503) return '短縮サービスが一時的に利用できません。';
+      return 'URLの短縮に失敗しました。';
+    }
+    return 'URLの短縮に失敗しました。';
+  }
+
+  function unwrapUrlShortenResult(result) {
+    if (!result || result.ok !== false) return result;
+    const details = result.error && typeof result.error === 'object' ? result.error : {};
+    const error = new Error('URLの短縮に失敗しました。');
+    error.code = String(details.code || 'unavailable');
+    const status = Number(details.status);
+    if (Number.isInteger(status)) error.status = status;
+    throw error;
+  }
+
+  async function copyUrl(value) {
+    const text = String(value || '');
+    if (!text) return;
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') throw new Error('クリップボードを利用できません。');
+    await navigator.clipboard.writeText(text);
+    setStatus('url-status', 'URLをクリップボードにコピーしました。');
+  }
+
+  async function openUrlExternal(value) {
+    const text = String(value || '');
+    if (!text) return;
+    try {
+      await desktop.urls.openExternal(text);
+      setStatus('url-status', '外部ブラウザでURLを開きました。');
+    } catch {
+      setStatus('url-status', 'URLを外部ブラウザで開けません。', true);
+    }
+  }
+
+  function handoffUrlToQr(value) {
+    const text = String(value || '');
+    if (!text) return;
+    $('qr-text').value = text;
+    setView('qr-view');
+    void generateQr();
+  }
+
+  function toggleUrlCustomField(select, wrapper, input) {
+    const isOther = select?.value === 'other';
+    if (wrapper) wrapper.hidden = !isOther;
+    if (input) {
+      input.required = isOther;
+      if (!isOther) input.value = '';
+    }
+  }
+
+  function populateUrlSelect(select, options) {
+    if (!select) return;
+    select.replaceChildren();
+    options.forEach((option) => {
+      const element = document.createElement('option');
+      element.value = option.value;
+      element.textContent = option.label;
+      select.append(element);
+    });
+  }
+
+  function resetUrlForm() {
+    if (state.urlBusy) return;
+    const form = $('url-form');
+    form?.reset();
+    $('base-url').value = urlUtils.DEFAULTS.baseUrl;
+    $('utm-source').value = urlUtils.DEFAULTS.source;
+    $('utm-medium').value = urlUtils.DEFAULTS.medium;
+    $('utm-campaign').value = urlUtils.DEFAULTS.campaign;
+    $('shortid').value = '';
+    toggleUrlCustomField($('utm-source'), $('source-custom-wrap'), $('utm-source-custom'));
+    toggleUrlCustomField($('utm-medium'), $('medium-custom-wrap'), $('utm-medium-custom'));
+    setUrlResults();
+    setStatus('url-status', '入力を初期化しました。');
+  }
+
+  async function generateUrl() {
+    if (state.urlBusy) return state.urlRequestPromise;
+    const button = $('url-generate-btn');
+    state.urlBusy = true;
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+    }
+    const request = (async () => {
+      let longUrl;
+      try {
+        const shortid = urlUtils.validateShortid($('shortid').value);
+        longUrl = urlUtils.buildUtmUrl($('base-url').value, {
+          source: $('utm-source').value,
+          sourceCustom: $('utm-source-custom').value,
+          medium: $('utm-medium').value,
+          mediumCustom: $('utm-medium-custom').value,
+          campaign: $('utm-campaign').value
+        });
+        // Render the local result before contacting the Worker so it remains
+        // available even when shortening fails or times out.
+        setUrlResults(longUrl, '');
+        setStatus('url-status', '長いURLを生成しました。短縮しています…');
+        const shortened = unwrapUrlShortenResult(await desktop.urls.shorten({ longUrl, shortid }));
+        if (!shortened || shortened.originalUrl !== longUrl || typeof shortened.shortUrl !== 'string') throw new Error('短縮サービスから不正な応答が返りました。');
+        setUrlResults(longUrl, shortened.shortUrl);
+        setStatus('url-status', 'URLを生成して短縮しました。');
+        return shortened;
+      } catch (error) {
+        if (longUrl) {
+          setUrlResults(longUrl, '');
+          setStatus('url-status', `${urlErrorMessage(error)} 長いURLはそのまま利用できます。`, true);
+        } else {
+          setUrlResults('', '');
+          setStatus('url-status', error instanceof Error ? error.message : '入力内容を確認してください。', true);
+        }
+        return null;
+      }
+    })();
+    state.urlRequestPromise = request;
+    try {
+      return await request;
+    } finally {
+      if (state.urlRequestPromise === request) state.urlRequestPromise = null;
+      state.urlBusy = false;
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+      }
+      setUrlResults(state.urlLongUrl, state.urlShortUrl);
+    }
+  }
+
+  function setupUrlGenerator() {
+    const source = $('utm-source');
+    const medium = $('utm-medium');
+    populateUrlSelect(source, urlUtils.sourceOptions);
+    populateUrlSelect(medium, urlUtils.mediumOptions);
+    source.value = urlUtils.DEFAULTS.source;
+    medium.value = urlUtils.DEFAULTS.medium;
+    $('base-url').value = urlUtils.DEFAULTS.baseUrl;
+    $('utm-campaign').value = urlUtils.DEFAULTS.campaign;
+    source.addEventListener('change', () => toggleUrlCustomField(source, $('source-custom-wrap'), $('utm-source-custom')));
+    medium.addEventListener('change', () => toggleUrlCustomField(medium, $('medium-custom-wrap'), $('utm-medium-custom')));
+    toggleUrlCustomField(source, $('source-custom-wrap'), $('utm-source-custom'));
+    toggleUrlCustomField(medium, $('medium-custom-wrap'), $('utm-medium-custom'));
+    $('url-form').addEventListener('submit', (event) => { event.preventDefault(); void generateUrl(); });
+    $('url-reset-btn').addEventListener('click', resetUrlForm);
+    [['copy-long-url', () => copyUrl(state.urlLongUrl)], ['copy-short-url', () => copyUrl(state.urlShortUrl)], ['open-long-url', () => openUrlExternal(state.urlLongUrl)], ['open-short-url', () => openUrlExternal(state.urlShortUrl)], ['qr-long-url', () => handoffUrlToQr(state.urlLongUrl)], ['qr-short-url', () => handoffUrlToQr(state.urlShortUrl)]].forEach(([id, action]) => $(id)?.addEventListener('click', () => { if (!$(id).disabled) void Promise.resolve(action()).catch((error) => setStatus('url-status', error instanceof Error ? error.message : 'URL操作に失敗しました。', true)); }));
+    setUrlResults();
+    setStatus('url-status', 'base URLとUTMを入力してURLを生成してください。');
   }
 
   function bytesToBase64(bytes) {
@@ -275,13 +456,21 @@
   function setupPdfFrame() {
     const frame = $('pdf-editor-frame');
     if (!frame) return;
+    const ping = () => {
+      if (!frame.contentWindow || state.pdfFrameReady) return;
+      try { postPdfFrameMessage(generated.pdfFrame.createPing()); } catch { /* frame may still be navigating */ }
+    };
     frame.addEventListener('load', () => {
       state.pdfFrameReady = false;
       document.documentElement.dataset.pdfFrameReady = 'false';
       setStatus('pdf-frame-status', '上流PDFエディターを読み込んでいます…');
-      if (frame.contentWindow) postPdfFrameMessage(generated.pdfFrame.createPing());
+      ping();
     });
     window.addEventListener('message', handlePdfFrameMessage);
+    // The iframe can finish loading while the parent is still parsing local
+    // scripts. A one-time ping after listener registration closes that race
+    // without allowing any network access or changing the frame contract.
+    ping();
   }
 
   function renderBatchErrors(errors) {
@@ -767,6 +956,7 @@
     setupPdfFrame();
     setupUpdateDialog();
     setupQrMode(); setupBatchInput();
+    setupUrlGenerator();
     setupTabs(); $('generate-btn').addEventListener('click',()=>void generateQr()); $('qr-text').addEventListener('keydown',(event)=>{if(event.key==='Enter')void generateQr();}); $('rotate-btn').addEventListener('click',()=>{state.qrAngle=(state.qrAngle+45)%360;$('angle-display').textContent=state.qrAngle;void generateQr();}); $('logo-upload').addEventListener('change',(event)=>void handleLogo(event)); $('no-logo-check').addEventListener('change',()=>{ $('logo-controls').style.opacity=$('no-logo-check').checked?'.45':'1'; $('rotate-btn').disabled=$('no-logo-check').checked; $('logo-upload').disabled=$('no-logo-check').checked; if (state.qr)void generateQr(); }); $('download-btn').addEventListener('click',()=>void saveQr()); $('save-asset-btn').addEventListener('click',()=>void saveQrAsset()); $('use-pdf-btn').addEventListener('click',()=>void useQrInPdf()); $('batch-generate-btn').addEventListener('click',()=>void generateBatchZip()); $('refresh-assets').addEventListener('click',()=>void loadAssets()); $('asset-list').addEventListener('click',(event)=>void assetAction(event)); $('check-update').addEventListener('click',()=>void checkUpdates()); $('release-link').addEventListener('click',async()=>{try{await desktop.updates.openRelease();}catch{setStatus('qr-status','Releaseページを開けません。',true);}});
     $('pdf-file-list').addEventListener('click',(event)=>{const button=event.target.closest('button[data-pdf-action]');if(!button)return;const index=Number(button.dataset.index);if(button.dataset.pdfAction==='pdf-up')movePdfFile(index,-1);else if(button.dataset.pdfAction==='pdf-down')movePdfFile(index,1);else if(button.dataset.pdfAction==='pdf-preview-file'&&state.pdfFiles[index])previewPdf(state.pdfFiles[index].data);});
     $('pdf-file-list').addEventListener('dragstart',(event)=>{const item=event.target.closest('li[data-index]');if(!item)return;state.draggedPdfIndex=Number(item.dataset.index);event.dataTransfer?.setData('text/plain',item.dataset.index);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});

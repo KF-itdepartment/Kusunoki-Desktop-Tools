@@ -85,7 +85,13 @@ async function run() {
     consoleErrors.push(`render-process-gone:${details.reason}`);
   });
   await smokeWindow.loadFile(rendererIndex);
-  const result = await inspectRenderer();
+  let result;
+  try {
+    result = await inspectRenderer();
+  } catch (error) {
+    if (consoleErrors.length) console.error(`Renderer diagnostics: ${consoleErrors.join(' | ')}`);
+    throw error;
+  }
   if (!result.bridgeReady || result.frameSrc !== './generated/upstream/pdf/index.html') {
     throw new Error(`unexpected generated PDF iframe result: ${JSON.stringify(result)}`);
   }
