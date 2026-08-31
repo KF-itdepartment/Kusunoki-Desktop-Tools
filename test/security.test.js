@@ -9,8 +9,13 @@ test('renderer has local-only CSP and no CDN references', () => {
   const html=fs.readFileSync(path.join(__dirname,'..','renderer','index.html'),'utf8');
   assert.match(html,/connect-src 'none'/); assert.match(html,/script-src 'self'/); assert.doesNotMatch(html,/unpkg|cdnjs|<script[^>]+src=["']https?:/iu);
   assert.match(html,/id="qr-online-mode"[^>]+data-qr-mode="online"[^>]+aria-pressed="true"/u);
-  assert.match(html,/<button[^>]+data-view="url-view"[^>]*>URL短縮<\/button>/u);
-  assert.doesNotMatch(html,/URL短縮（準備中）/u);
+  const nav = html.match(/<nav class="main-nav"[\s\S]*?<\/nav>/u)?.[0];
+  assert.ok(nav, 'main navigation is present');
+  const navLabels = [...nav.matchAll(/<button[^>]*data-view="[^"]+"[^>]*>([^<]*)<\/button>/gu)].map((match) => match[1]);
+  assert.deepEqual(navLabels, ['QRコード', 'PDFエディター', 'UTM URL生成・短縮', '素材トレイ']);
+  assert.equal(navLabels.at(-1), '素材トレイ');
+  assert.match(html, /<h1 id="url-heading">UTM URL生成・短縮<\/h1>/u);
+  assert.doesNotMatch(html, /URL短縮/u);
   assert.match(html,/generated\/upstream\/url\/config\.js/u);
   const preload=fs.readFileSync(path.join(__dirname,'..','electron','preload.js'),'utf8');
   assert.match(preload,/contextBridge/); assert.doesNotMatch(preload,/readFile|writeFile|shell\.openExternal/);
