@@ -4,3 +4,6 @@
 [submodule "vendor/pdf-editor"]
 	path = vendor/pdf-editor
 	url = https://github.com/KF-itdepartment/pdf-editor.git
+[submodule "vendor/analytics-url-generator"]
+	path = vendor/analytics-url-generator
+	url = https://github.com/KF-itdepartment/analytics_url_generator.git
